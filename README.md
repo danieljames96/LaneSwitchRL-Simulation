@@ -25,6 +25,10 @@ RL-based simulation of lane-switching in traffic
 16. `Action Space`: 
 - The agent can attempt to move left (-1), stay in the current lane (0), or move right (1).
 - If the action is impossible (e.g., moving left in the leftmost lane), Ah Tan stays in the lane.
-17. `Initial Distance`: The distance from the destination (dt) is initialized randomly at the beginning of each episode within a specified range (e.g., 3000 to 5000 meters). The distance decreases over time based on the clearance rate of the lane Ah Tan is in. This was not explicitly mentioned in the problem statement.
-18. `Lane Change Success Rate`: When Ah Tan attempts to change lanes, there is only a 50% chance of success. Regardless of whether the lane change succeeds or fails, the penalty for attempting a lane change (-5) is applied. If the lane change fails, Ah Tan remains in the same lane for that time step.
-19. `End Condition`: The episode ends when Ah Tan reaches his destination, i.e., when the distance to the destination (dt) becomes less than or equal to zero. At this point, the episode is considered done.
+17. `Lane Change Success Rate`: When Ah Tan attempts to change lanes, there is only a 50% chance of success. Regardless of whether the lane change succeeds or fails, the penalty for attempting a lane change (-5) is applied. If the lane change fails, Ah Tan remains in the same lane for that time step.
+18. `End Condition`: The episode ends when Ah Tan reaches his destination, i.e., when the distance to the destination (dt) becomes less than or equal to zero. At this point, the episode is considered done.
+
+## Assumptions:
+
+1. `Initial Distance`: The distance from the destination (dt) is initialized randomly at the beginning of each episode within a specified range (e.g., 3000 to 5000 meters). The distance decreases over time based on the clearance rate of the lane Ah Tan is in. This was not explicitly mentioned in the problem statement.
+2. `Initial Lane and Clearance Rates`: The initial lane will be randomly picked from 5 lanes. We initialize clearance rates randomly between 15 and 20 for all lanes. 
