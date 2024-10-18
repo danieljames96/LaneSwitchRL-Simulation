@@ -23,10 +23,6 @@ class TrafficEnvironment:
         # Initialize clearance rates randomly between 15 and 20 for all lanes
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
 
-        print('Initial Distance: ', self.distance)
-        print('Initial Clearance Rates: ', self.clearance_rates)
-        print('Initial Lane: ', self.current_lane)
-
         # Subtract the clearance rate of the current lane from the distance for the first state
         # self.distance -= self.clearance_rates[self.current_lane - 1]
         # self.distance = round(self.distance, self.rounding_precision)
