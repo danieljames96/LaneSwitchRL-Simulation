@@ -36,7 +36,40 @@ RL-based simulation of lane-switching in traffic
 
 ## Custom Environment Changes:
 
-### **Fatigue**:
+### State Index Mapping
+
+The flattened state array includes the last three time steps, each containing information about the distance, current lane, fatigue counter, and clearance rates.
+
+| **Index** | **Element**              | **Time Step**  |
+|-----------|--------------------------|----------------|
+| 0         | Distance                 | t-2            |
+| 1         | Current Lane             | t-2            |
+| 2         | Fatigue Counter          | t-2            |
+| 3         | Clearance Rate (Lane 1)  | t-2            |
+| 4         | Clearance Rate (Lane 2)  | t-2            |
+| 5         | Clearance Rate (Lane 3)  | t-2            |
+| 6         | Clearance Rate (Lane 4)  | t-2            |
+| 7         | Clearance Rate (Lane 5)  | t-2            |
+| 8         | Distance                 | t-1            |
+| 9         | Current Lane             | t-1            |
+| 10        | Fatigue Counter          | t-1            |
+| 11        | Clearance Rate (Lane 1)  | t-1            |
+| 12        | Clearance Rate (Lane 2)  | t-1            |
+| 13        | Clearance Rate (Lane 3)  | t-1            |
+| 14        | Clearance Rate (Lane 4)  | t-1            |
+| 15        | Clearance Rate (Lane 5)  | t-1            |
+| 16        | Distance                 | t              |
+| 17        | Current Lane             | t              |
+| 18        | Fatigue Counter          | t              |
+| 19        | Clearance Rate (Lane 1)  | t              |
+| 20        | Clearance Rate (Lane 2)  | t              |
+| 21        | Clearance Rate (Lane 3)  | t              |
+| 22        | Clearance Rate (Lane 4)  | t              |
+| 23        | Clearance Rate (Lane 5)  | t              |
+
+**Total Length**: 24 elements
+
+### **Fatigue**
 1. New Action for Rest
     - Expanded **action space** to `Discrete(4)` to include the **'rest' action**:
         - **0**: Move left
@@ -49,17 +82,33 @@ RL-based simulation of lane-switching in traffic
     - Fatigue penalty grows over time and is subtracted from the reward.
 
 3. Fatigue Growth Options
-    - Added linear, exponential, and quadratic growth options for fatigue penalties.
+    - Added linear and quadratic growth options for fatigue penalties.
 
-4. Integrated Fatigue into Rewards
-    - Fatigue penalty is included in the reward function, increasing long-term decision complexity.
-
-5. Observation Space Update
+4. Observation Space Update
     - Added **fatigue counter** to the observation space, making it visible to the agent.
 
-6. Reward Shaping for Rest
+5. Reward Shaping for Rest
     - Taking the **'rest' action** resets the fatigue counter but incurs a small penalty.
     - Attempting to rest in invalid lanes results in a higher penalty.
+    - Reaching max fatigue results in a higher penalty.
 
-7. Adjusted `step()` Method
+6. Adjusted `step()` Method
     - Modified the `step()` method to handle the new action and fatigue penalties. The agent does not cover any distance in this time step.
+
+### **Rainfall Condition**
+
+1. Introduction of Rainfall Condition
+    The environment has been updated to simulate the effects of rainfall on lane clearance rates. During each time step, there is a random probability that it will rain, affecting lane dynamics differently:
+
+    - **Lanes 1 and 5**: Experience higher water accumulation, with a clearance rate adjustment following `N(-0.2, 0.1)`.
+    - **Lanes 2 and 4**: Experience moderate water accumulation, with a clearance rate adjustment following `N(-0.1, 0.1)`.
+    - **Lane 3**: Has minimal water accumulation, with a clearance rate adjustment following `N(0, 0.1)`.
+
+2. Implementation Details
+    - A new parameter, **`rain_probability`**, controls the likelihood of rainfall at each time step (default is 0.1).
+    - If it rains, lane-specific normal distributions are applied to update clearance rates.
+    - The agent must adapt to changing conditions caused by rainfall, making decisions based on the observed clearance rates.
+
+3. Design Considerations
+    - The **`is_raining`** flag is not included in the state to maintain complexity and ensure the agent learns from indirect observations.
+    - This change aims to introduce variability and challenge, simulating realistic weather-induced impacts on traffic.

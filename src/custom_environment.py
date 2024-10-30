@@ -6,7 +6,7 @@ from gymnasium import spaces
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='linear'):
+    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='linear', rain_probability=0.1):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -19,6 +19,8 @@ class CustomTrafficEnvironment(gym.Env):
         self.max_fatigue = max_fatigue
         self.max_fatigue_penalty = 50  # Apply a large penalty for hitting max fatigue
         self.fatigue_growth = fatigue_growth
+        self.rain_probability = rain_probability
+        self.is_raining = False
         self.state_history = []
         self.rounding_precision = 1
         self.clearance_rate_min = 0
@@ -50,6 +52,7 @@ class CustomTrafficEnvironment(gym.Env):
         # Initialize the state
         self.distance = self.initial_distance
         self.current_lane = 1  # Always start from first lane
+        self.is_raining = False
         # Initialize clearance rates randomly between 15 and 20 for all lanes
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
         self.fatigue_counter = 0
@@ -120,9 +123,23 @@ class CustomTrafficEnvironment(gym.Env):
     def _update_clearance_rates(self):
         # Update clearance rates based on adjacent lanes' speeds and add uncertainty term N(0, 0.1)
         updated_rates = self.clearance_rates.copy()
+        
+        if random.random() < self.rain_probability:
+            self.is_raining = True
+        else:
+            self.is_raining = False
+        
         for i in range(self.lanes):
-            # Adding the uncertainty term N(0, 0.1)
-            uncertainty = np.random.normal(0, 0.1)
+            # Apply lane-specific normal distributions if it's raining
+            if self.is_raining:
+                if i == 0 or i == self.lanes - 1:  # Lanes 1 and 5
+                    uncertainty = np.random.normal(-0.2, 0.1)
+                elif i == 1 or i == 3:  # Lanes 2 and 4
+                    uncertainty = np.random.normal(-0.1, 0.1)
+                else:  # Lane 3
+                    uncertainty = np.random.normal(0, 0.1)
+            else:
+                uncertainty = np.random.normal(0, 0.1)  # Default non-rainy condition
 
             # Random Event: 5% chance of slowdown (20%-50%) and 5% chance of speedup (20%-40%)
             random_event = random.random()
