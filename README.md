@@ -36,18 +36,30 @@ RL-based simulation of lane-switching in traffic
 
 ## Custom Environment Changes:
 
-1. **Fatigue**:
-    - **New Action Space**:
-Added a 'rest' action to the existing action space, making it possible for the agent to take a break. Updated action mapping: {0: -1, 1: 0, 2: 1, 3: 'rest'}.
-    - **Fatigue Counter**:
-Introduce a fatigue counter that increases with each step and resets to zero when the agent takes a 'rest' action.
-The fatigue counter will be included in the state to represent the driver's awareness of their current fatigue level.
-    - **Modified Reward Calculation**:
-Add a fatigue penalty to the reward, which increases with each step. This penalty should reset when the agent takes a 'rest' action.
-For example, the penalty can start at a small negative value and increase linearly or exponentially over time.
-Action Constraint:
+### **Fatigue**:
+1. New Action for Rest
+    - Expanded **action space** to `Discrete(4)` to include the **'rest' action**:
+        - **0**: Move left
+        - **1**: Stay
+        - **2**: Move right
+        - **3**: Rest (only available in lanes 1 or 5).
 
-The 'rest' action should only be available when the agent is on the first or last lane. Update the logic to ensure this constraint is enforced.
-Updating the State:
+2. Fatigue Mechanism Added
+    - Introduced a **fatigue counter** that increments each step unless the agent takes the **'rest' action**.
+    - Fatigue penalty grows over time and is subtracted from the reward.
 
-Include the fatigue counter in the observation, allowing the agent to make decisions based on its current fatigue level.
+3. Fatigue Growth Options
+    - Added linear, exponential, and quadratic growth options for fatigue penalties.
+
+4. Integrated Fatigue into Rewards
+    - Fatigue penalty is included in the reward function, increasing long-term decision complexity.
+
+5. Observation Space Update
+    - Added **fatigue counter** to the observation space, making it visible to the agent.
+
+6. Reward Shaping for Rest
+    - Taking the **'rest' action** resets the fatigue counter but incurs a small penalty.
+    - Attempting to rest in invalid lanes results in a higher penalty.
+
+7. Adjusted `step()` Method
+    - Modified the `step()` method to handle the new action and fatigue penalties. The agent does not cover any distance in this time step.

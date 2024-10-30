@@ -6,7 +6,7 @@ from gymnasium import spaces
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='exponential'):
+    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='linear'):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -17,6 +17,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.lanes = lanes
         self.initial_distance = initial_distance
         self.max_fatigue = max_fatigue
+        self.max_fatigue_penalty = 50  # Apply a large penalty for hitting max fatigue
         self.fatigue_growth = fatigue_growth
         self.state_history = []
         self.rounding_precision = 1
@@ -27,9 +28,9 @@ class CustomTrafficEnvironment(gym.Env):
         # Define action space (-1: left, 0: stay, 1: right, 2: rest)
         self.action_space = spaces.Discrete(4)
         
-        # Define observation space: (distance, current lane, clearance rates, fatigue counter)
-        low_obs = np.array([0, 1] + [self.clearance_rate_min] * self.lanes + [0], dtype=np.float32)
-        high_obs = np.array([self.initial_distance] + [lanes] + [float('inf')] * self.lanes + [self.max_fatigue], dtype=np.float32)
+        # Define observation space: (distance, current lane, fatigue counter, clearance rates)
+        low_obs = np.array([0, 1, 0] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
+        high_obs = np.array([self.initial_distance] + [lanes] + [self.max_fatigue] + [float('inf')] * self.lanes, dtype=np.float32)
         self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
         
         # Define action mapping
@@ -54,7 +55,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.fatigue_counter = 0
 
         # Reset state history
-        self.state_history = [(self.distance, self.current_lane, *self.clearance_rates, self.fatigue_counter)]
+        self.state_history = [(self.distance, self.current_lane, self.fatigue_counter, *self.clearance_rates)]
         self.time_step = 0
         
         obs = self._get_obs()
@@ -85,14 +86,16 @@ class CustomTrafficEnvironment(gym.Env):
         """
         Calculate the fatigue penalty based on the growth function.
         """
-        if self.fatigue_growth == 'linear':
-            return self.fatigue_counter
-        elif self.fatigue_growth == 'exponential':
-            return 2 ** self.fatigue_counter - 1
-        elif self.fatigue_growth == 'quadratic':
-            return self.fatigue_counter ** 2
+        
+        if self.fatigue_counter >= self.max_fatigue:
+            return self.max_fatigue_penalty
         else:
-            return self.fatigue_counter
+            if self.fatigue_growth == 'linear':
+                return 2 * self.fatigue_counter
+            elif self.fatigue_growth == 'quadratic':
+                return self.fatigue_counter ** 2
+            else:
+                return self.fatigue_counter
         
     def _attempt_lane_change(self, action):
         """
@@ -165,27 +168,50 @@ class CustomTrafficEnvironment(gym.Env):
         reward = 0
         terminated = False
         truncated = False
-
-        # Handle lane change
-        if action != 0:
-            reward += self._attempt_lane_change(action)
-        # No action needed for staying in the current lane
-
-        # Update lane clearance rates based on neighboring lanes
-        self._update_clearance_rates()
-
-        # Compute the distance covered in the current lane
-        clearance_rate = self.clearance_rates[self.current_lane - 1]
-        distance_covered = clearance_rate
-        self.distance -= distance_covered
-        self.distance = round(self.distance, self.rounding_precision)
-
+        
         # Time penalty
-        reward += distance_covered - 10
+        reward -= 10
+        
+        # Handle 'rest' action
+        if action == 2:
+            if self.current_lane == 1 or self.current_lane == self.lanes:
+                self.fatigue_counter = 0 # Reset fatigue counter
+                reward -= 2
+            else:
+                # Invalid rest action, penalize for attempting to rest in middle lanes
+                reward -= 10
+        
+        else:
+            # Increment fatigue counter and calculate fatigue penalty
+            self.fatigue_counter += 1
+            
+            if self.fatigue_counter >= self.max_fatigue:
+                fatigue_penalty = 50  # Apply a large penalty for hitting max fatigue
+            else:
+                fatigue_penalty = self._calculate_fatigue_penalty()
+            reward -= fatigue_penalty
+
+            # Handle lane change if not staying
+            if action != 0:
+                reward += self._attempt_lane_change(action)
+            # No action needed for staying in the current lane
+
+            # Update lane clearance rates based on neighboring lanes
+            self._update_clearance_rates()
+
+            # Compute the distance covered in the current lane
+            clearance_rate = self.clearance_rates[self.current_lane - 1]
+            distance_covered = clearance_rate
+            self.distance -= distance_covered
+            self.distance = round(self.distance, self.rounding_precision)
+
+            # Reward for distance covered
+            reward += distance_covered
+        
         reward = round(reward, self.rounding_precision)
 
         # Now, after all the updates for the current time step, append the state to history
-        self.state_history.append((self.distance, self.current_lane, *self.clearance_rates))
+        self.state_history.append((self.distance, self.current_lane, self.fatigue_counter, *self.clearance_rates))
 
         # Check if the episode is done (if the destination is reached)
         if self.distance <= 0:
@@ -213,3 +239,4 @@ class CustomTrafficEnvironment(gym.Env):
             print(f"Distance to Destination: {self.distance}")
             print(f"Current Lane: {self.current_lane}")
             print(f"Clearance Rates: {self.clearance_rates}")
+            print(f"Fatigue Counter: {self.fatigue_counter}")
