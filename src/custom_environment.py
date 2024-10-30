@@ -3,34 +3,37 @@ import random
 import gymnasium as gym
 from gymnasium import spaces
 
-class TrafficEnvironment(gym.Env):
+class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000):
+    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='exponential'):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
         - initial_distance (int): The distance from destination.
         """
-        super(TrafficEnvironment, self).__init__()
+        super(CustomTrafficEnvironment, self).__init__()
         
         self.lanes = lanes
         self.initial_distance = initial_distance
-        self.state = None
+        self.max_fatigue = max_fatigue
+        self.fatigue_growth = fatigue_growth
+        self.state_history = []
         self.rounding_precision = 1
         self.clearance_rate_min = 0
         self.max_time_steps = 10000
+        self.fatigue_counter = 0
         
-        # Define action space (-1: left, 0: stay, 1: right)
-        self.action_space = spaces.Discrete(3)
+        # Define action space (-1: left, 0: stay, 1: right, 2: rest)
+        self.action_space = spaces.Discrete(4)
         
-        # Define observation space: (distance, current lane, clearance rates)
-        low_obs = np.array([0] + [1] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
-        high_obs = np.array([self.initial_distance] + [lanes] + [float('inf')] * self.lanes, dtype=np.float32)
+        # Define observation space: (distance, current lane, clearance rates, fatigue counter)
+        low_obs = np.array([0, 1] + [self.clearance_rate_min] * self.lanes + [0], dtype=np.float32)
+        high_obs = np.array([self.initial_distance] + [lanes] + [float('inf')] * self.lanes + [self.max_fatigue], dtype=np.float32)
         self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
         
         # Define action mapping
-        self.action_mapping = {0: -1, 1: 0, 2: 1}
+        self.action_mapping = {0: -1, 1: 0, 2: 1, 3: 2}
         
         self.reset()
 
@@ -42,14 +45,16 @@ class TrafficEnvironment(gym.Env):
         - info (dict): Additional Information
         """
         super().reset(seed=seed)
+        
         # Initialize the state
         self.distance = self.initial_distance
         self.current_lane = 1  # Always start from first lane
         # Initialize clearance rates randomly between 15 and 20 for all lanes
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
+        self.fatigue_counter = 0
 
         # Reset state history
-        self.state_history = [(self.distance, self.current_lane, *self.clearance_rates)]
+        self.state_history = [(self.distance, self.current_lane, *self.clearance_rates, self.fatigue_counter)]
         self.time_step = 0
         
         obs = self._get_obs()
@@ -75,7 +80,20 @@ class TrafficEnvironment(gym.Env):
         flat_state = np.concatenate([np.array(state) for state in padded_history], axis=None)
         
         return flat_state.astype(np.float32)
-
+    
+    def _calculate_fatigue_penalty(self):
+        """
+        Calculate the fatigue penalty based on the growth function.
+        """
+        if self.fatigue_growth == 'linear':
+            return self.fatigue_counter
+        elif self.fatigue_growth == 'exponential':
+            return 2 ** self.fatigue_counter - 1
+        elif self.fatigue_growth == 'quadratic':
+            return self.fatigue_counter ** 2
+        else:
+            return self.fatigue_counter
+        
     def _attempt_lane_change(self, action):
         """
         Attempts to change lane based on the action.
@@ -128,7 +146,7 @@ class TrafficEnvironment(gym.Env):
             updated_rates[i] = max(updated_rates[i], self.clearance_rate_min)
 
         self.clearance_rates = updated_rates
-    
+
     def step(self, action):
         """
         Takes an action and returns the next state, reward, terminated, truncated, and info.
@@ -142,15 +160,15 @@ class TrafficEnvironment(gym.Env):
         - info (dict): Additional information about the environment.
         """
         # Map the discrete action to the original action space (-1, 0, 1)
-        mapped_action = self.action_mapping[action]
+        # mapped_action = self.action_mapping[action]
         
         reward = 0
         terminated = False
         truncated = False
 
         # Handle lane change
-        if mapped_action != 0:
-            reward += self._attempt_lane_change(mapped_action)
+        if action != 0:
+            reward += self._attempt_lane_change(action)
         # No action needed for staying in the current lane
 
         # Update lane clearance rates based on neighboring lanes
