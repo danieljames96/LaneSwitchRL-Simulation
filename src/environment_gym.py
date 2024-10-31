@@ -25,9 +25,8 @@ class TrafficEnvironment(gym.Env):
         self.action_space = spaces.Discrete(3)
         
         # Define observation space: (distance, current lane, clearance rates)
-        low_obs = np.array([0] + [1] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
-        high_obs = np.array([self.initial_distance] + [lanes] + [float('inf')] * self.lanes, dtype=np.float32)
-        self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
+        obs_dim = 3 * (2 + self.lanes)
+        self.observation_space = spaces.Box(low=0, high=4000, shape=(obs_dim,), dtype=np.float32)
         
         # Define action mapping
         self.action_mapping = {0: -1, 1: 0, 2: 1}
