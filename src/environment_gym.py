@@ -141,15 +141,15 @@ class TrafficEnvironment(gym.Env):
         - info (dict): Additional information about the environment.
         """
         # Map the discrete action to the original action space (-1, 0, 1)
-        # mapped_action = self.action_mapping[action]
+        mapped_action = self.action_mapping[action]
         
         reward = 0
         terminated = False
         truncated = False
 
         # Handle lane change
-        if action != 0:
-            reward += self._attempt_lane_change(action)
+        if mapped_action != 0:
+            reward += self._attempt_lane_change(mapped_action)
         # No action needed for staying in the current lane
 
         # Update lane clearance rates based on neighboring lanes
