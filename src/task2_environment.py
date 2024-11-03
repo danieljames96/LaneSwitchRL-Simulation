@@ -2,11 +2,12 @@ import numpy as np
 import random
 import gymnasium as gym
 from gymnasium import spaces
+import logging
 
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, fatigue_growth='linear', rain_probability=0.1):
+    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, max_fatigue_penalty=50, fatigue_growth='linear', rain_probability=0.1, max_time_steps = 10000, logging_level=logging.INFO):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -14,17 +15,42 @@ class CustomTrafficEnvironment(gym.Env):
         """
         super(CustomTrafficEnvironment, self).__init__()
         
+        # Configure self.logger
+        # self.logger.basicConfig(level=self.logger_level, format='%(asctime)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging_level)
+        log_file='./logs/environment_logs/custom_traffic_env.log'
+        
+        # Only add handlers if they are not already attached
+        if not self.logger.hasHandlers():
+            # File handler for writing logs to a file
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setLevel(logging_level)
+            
+            # Optional: Console handler for showing logs in the notebook output
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging_level)
+
+            # Set a format for the log messages
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            console_handler.setFormatter(formatter)
+            
+            # Add both handlers to the logger
+            self.logger.addHandler(file_handler)
+            # self.logger.addHandler(console_handler)
+        
         self.lanes = lanes
         self.initial_distance = initial_distance
         self.max_fatigue = max_fatigue
-        self.max_fatigue_penalty = 50  # Apply a large penalty for hitting max fatigue
         self.fatigue_growth = fatigue_growth
         self.rain_probability = rain_probability
+        self.max_time_steps = max_time_steps
+        self.max_fatigue_penalty = max_fatigue_penalty
         self.is_raining = False
         self.state_history = []
         self.rounding_precision = 1
-        self.clearance_rate_min = 0
-        self.max_time_steps = 10000
+        self.clearance_rate_min = 5
         self.fatigue_counter = 0
         
         # Define action space (-1: left, 0: stay, 1: right, 2: rest)
@@ -39,6 +65,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.action_mapping = {0: -1, 1: 0, 2: 1, 3: 2}
         
         self.reset()
+        self.logger.debug("Environment initialized.")
 
     def reset(self, seed=None):
         """
@@ -61,6 +88,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.state_history = [(self.distance, self.current_lane, self.fatigue_counter, *self.clearance_rates)]
         self.time_step = 0
         
+        self.logger.debug("Environment reset.")
         obs = self._get_obs()
         info = {}
         
@@ -83,22 +111,25 @@ class CustomTrafficEnvironment(gym.Env):
         # Convert to a single observation array
         flat_state = np.concatenate([np.array(state) for state in padded_history], axis=None)
         
+        self.logger.debug(f"Observation generated: {flat_state}")
         return flat_state.astype(np.float32)
     
     def _calculate_fatigue_penalty(self):
         """
         Calculate the fatigue penalty based on the growth function.
         """
-        
         if self.fatigue_counter >= self.max_fatigue:
-            return self.max_fatigue_penalty
+            penalty = self.max_fatigue_penalty
         else:
             if self.fatigue_growth == 'linear':
-                return 2 * self.fatigue_counter
+                penalty = 2 * self.fatigue_counter
             elif self.fatigue_growth == 'quadratic':
-                return self.fatigue_counter ** 2
+                penalty = self.fatigue_counter ** 2
             else:
-                return self.fatigue_counter
+                penalty = self.fatigue_counter
+        
+        self.logger.debug(f"Fatigue penalty calculated: {penalty}")
+        return penalty
         
     def _attempt_lane_change(self, action):
         """
@@ -108,16 +139,17 @@ class CustomTrafficEnvironment(gym.Env):
         Returns:
         - penalty (float): The penalty to be applied to the reward.
         """
-        penalty = -5  # Penalty for attempting a lane change
-
-        # Check if the lane change is within bounds
+        penalty = -5
         new_lane = self.current_lane + action
         if 1 <= new_lane <= self.lanes:
-            # Attempt the lane change with a 50% success rate
             if random.random() < 0.5:
-                self.current_lane = new_lane  # Lane change succeeds
-        # If the lane change is invalid, the penalty is still applied
-
+                self.current_lane = new_lane
+                self.logger.debug(f"Lane change succeeded to lane {self.current_lane}")
+            else:
+                self.logger.debug("Lane change failed.")
+        else:
+            self.logger.warning("Lane change action out of bounds.")
+        
         return penalty
 
     def _update_clearance_rates(self):
@@ -126,8 +158,10 @@ class CustomTrafficEnvironment(gym.Env):
         
         if random.random() < self.rain_probability:
             self.is_raining = True
+            self.logger.debug("Rain started.")
         else:
             self.is_raining = False
+            self.logger.debug("No rain.")
         
         for i in range(self.lanes):
             # Apply lane-specific normal distributions if it's raining
@@ -146,9 +180,11 @@ class CustomTrafficEnvironment(gym.Env):
             # 5% chance of slowdown
             if random_event < 0.05:
                 updated_rates[i] -= self.clearance_rates[i] * random.uniform(0.2, 0.5)
+                self.logger.debug(f"Clearance rate slowed in lane {i+1}")
             # 5% chance of speedup
             elif random_event >= 0.05 and random_event < 0.1:
                 updated_rates[i] += self.clearance_rates[i] * random.uniform(0.2, 0.4)
+                self.logger.debug(f"Clearance rate increased in lane {i+1}")
 
             # Update based on adjacent lanes, with sgn function and uncertainty
             if i > 0:
@@ -156,16 +192,14 @@ class CustomTrafficEnvironment(gym.Env):
             if i < self.lanes - 1:
                 updated_rates[i] += 0.2 * np.sign(self.clearance_rates[i + 1] - self.clearance_rates[i])
 
-            # Apply the uncertainty term to each lane
             updated_rates[i] += uncertainty
-
-            # Round clearance rates
             updated_rates[i] = round(updated_rates[i], self.rounding_precision)
-
-            # Ensure clearance rates don't drop below a minimum threshold
             updated_rates[i] = max(updated_rates[i], self.clearance_rate_min)
+            
+            # self.logger.debug(f"Lane {i+1} clearance rate updated from {self.clearance_rates[i]} to {updated_rates[i]}")
 
         self.clearance_rates = updated_rates
+        self.logger.debug("Clearance rates updated.")
 
     def step(self, action):
         """
@@ -179,8 +213,8 @@ class CustomTrafficEnvironment(gym.Env):
         - truncated (bool): Whether the episode ended due to truncation (e.g., exceeding max time steps).
         - info (dict): Additional information about the environment.
         """
-        # Map the discrete action to the original action space (-1, 0, 1)
-        # mapped_action = self.action_mapping[action]
+        # Map the discrete action to the original action space (-1, 0, 1, 2)
+        mapped_action = self.action_mapping[action]
         
         reward = 0
         terminated = False
@@ -190,27 +224,27 @@ class CustomTrafficEnvironment(gym.Env):
         reward -= 10
         
         # Handle 'rest' action
-        if action == 2:
+        if mapped_action == 2:
             if self.current_lane == 1 or self.current_lane == self.lanes:
                 self.fatigue_counter = 0 # Reset fatigue counter
                 reward -= 2
+                self.logger.debug("Rest action taken; fatigue counter reset.")
             else:
                 # Invalid rest action, penalize for attempting to rest in middle lanes
                 reward -= 10
+                self.logger.warning("Invalid rest action in middle lane.")
         
         else:
             # Increment fatigue counter and calculate fatigue penalty
-            self.fatigue_counter += 1
+            if random.random() < 0.5 and self.fatigue_counter < self.max_fatigue:
+                self.fatigue_counter += 1
             
-            if self.fatigue_counter >= self.max_fatigue:
-                fatigue_penalty = 50  # Apply a large penalty for hitting max fatigue
-            else:
-                fatigue_penalty = self._calculate_fatigue_penalty()
+            fatigue_penalty = self._calculate_fatigue_penalty()
             reward -= fatigue_penalty
 
             # Handle lane change if not staying
-            if action != 0:
-                reward += self._attempt_lane_change(action)
+            if mapped_action != 0:
+                reward += self._attempt_lane_change(mapped_action)
             # No action needed for staying in the current lane
 
             # Update lane clearance rates based on neighboring lanes
@@ -218,7 +252,7 @@ class CustomTrafficEnvironment(gym.Env):
 
             # Compute the distance covered in the current lane
             clearance_rate = self.clearance_rates[self.current_lane - 1]
-            distance_covered = clearance_rate
+            distance_covered = clearance_rate if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
             self.distance -= distance_covered
             self.distance = round(self.distance, self.rounding_precision)
 
@@ -234,15 +268,18 @@ class CustomTrafficEnvironment(gym.Env):
         if self.distance <= 0:
             terminated = True
             self.distance = 0
+            self.logger.debug("Destination reached; episode terminated.")
 
         # Check if the episode is truncated (e.g., max time steps reached)
         self.time_step += 1
         if self.time_step >= self.max_time_steps:
             truncated = True
+            self.logger.debug("Maximum time steps reached; episode truncated.")
         
         # Return the next observation using _get_obs()
         next_state = self._get_obs()
         info = {}
+        self.logger.debug(f"Step completed with reward: {reward}")
         return next_state, reward, terminated, truncated, info
     
     def render(self, mode='human'):
@@ -252,8 +289,10 @@ class CustomTrafficEnvironment(gym.Env):
         - mode (str): The mode of rendering. 'human' for console output.
         """
         if mode == 'human':
-            print(f"Time Step: {self.time_step}")
-            print(f"Distance to Destination: {self.distance}")
-            print(f"Current Lane: {self.current_lane}")
-            print(f"Clearance Rates: {self.clearance_rates}")
-            print(f"Fatigue Counter: {self.fatigue_counter}")
+            self.logger.info(f"Time Step: {self.time_step}")
+            self.logger.info(f"Distance to Destination: {self.distance}")
+            self.logger.info(f"Current Lane: {self.current_lane}")
+            self.logger.info(f"Clearance Rates: {self.clearance_rates}")
+            self.logger.info(f"Fatigue Counter: {self.fatigue_counter}")
+            self.logger.info(f"Is Raining: {self.is_raining}")
+            self.logger.info('**************************************************')

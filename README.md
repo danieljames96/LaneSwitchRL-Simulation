@@ -69,6 +69,9 @@ The flattened state array includes the last three time steps, each containing in
 
 **Total Length**: 24 elements
 
+### **Min Clearance Rate**
+The minimum clearance rate is set to a specific number > 0 to ensure that the traffic is moving and does not stagnate to zero.
+
 ### **Fatigue**
 1. New Action for Rest
     - Expanded **action space** to `Discrete(4)` to include the **'rest' action**:
@@ -78,8 +81,9 @@ The flattened state array includes the last three time steps, each containing in
         - **3**: Rest (only available in lanes 1 or 5).
 
 2. Fatigue Mechanism Added
-    - Introduced a **fatigue counter** that increments each step unless the agent takes the **'rest' action**.
+    - Introduced a **fatigue counter** that stochastically (random chance) increments each step and resets when the agent takes the **'rest' action**.
     - Fatigue penalty grows over time and is subtracted from the reward.
+    - Limited at **max_fatigue** at which point distance covered is halved.
 
 3. Fatigue Growth Options
     - Added linear and quadratic growth options for fatigue penalties.
