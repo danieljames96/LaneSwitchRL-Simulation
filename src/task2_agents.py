@@ -28,7 +28,7 @@ class TemporalDifference:
         self.oiv = oiv
 
         # Action space: 4 actions (0: move left, 1: stay, 2: move right, 3: rest)
-        self.action_space = 4
+        self.action_space = 3 # 4
 
         # use nested dictionaries for V, Q, E.
         # {state: [s_a1, s_a2, s_a3]}
@@ -57,7 +57,7 @@ class TemporalDifference:
         else:
             return self.get_best_action(state)
     
-    def transform_state(self, state, initial_distance, num_discrete_levels=10):
+    def transform_state(self, state, initial_distance, num_discrete_levels=5):
         """
         Normalize the distance to a percentage of the initial distance and discretize clearance rates.
         
@@ -70,11 +70,11 @@ class TemporalDifference:
         - transformed_state: Tuple containing the normalized distance percentage and discrete clearance rates.
         """
         # Normalize distance as a percentage of initial distance
-        distance_percentage = int((state[16] / initial_distance) * 100)
+        distance_percentage = int((state[16] / initial_distance) * 10)
         
         # Get current lane and clearance rates for adjacent lanes
         current_lane = int(state[17])
-        fatigue_counter = int(state[18])
+        # fatigue_counter = 1 if int(state[18]) > 3 else 0
         clearance_rates = state[19:]
         
         # Discretize clearance rates to specified levels (e.g., 1 to 10)
@@ -94,9 +94,9 @@ class TemporalDifference:
         current_lane_rate = discretize_rate(current_lane_rate)
 
         # Return transformed state with normalized distance and discrete clearance rates
-        return (distance_percentage, current_lane, fatigue_counter, current_lane_rate, left_lane_rate, right_lane_rate)
+        return (distance_percentage, current_lane, current_lane_rate, left_lane_rate, right_lane_rate) # fatigue_counter
     
-    def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000):
+    def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000, log = False):
 
         #initialize list to store episode history
         self.total_reward_list = []
@@ -118,6 +118,10 @@ class TemporalDifference:
 
             #get first action
             action = self.epsilon_greedy_policy(state)
+            
+            if log:
+                self.Env.render()
+                self.Env.logger.info(f"Action: {action}")
 
             while not terminated and not truncated:
                 #perform action
@@ -130,7 +134,6 @@ class TemporalDifference:
                 total_reward += reward
 
                 #get next state and action
-                next_state = tuple(next_state)
                 next_action = self.epsilon_greedy_policy(next_state)
                 
                 #update tables(dictionaries)
@@ -170,9 +173,13 @@ class TemporalDifference:
 
                 # move to next state and action pair
                 state, action = next_state, next_action
+                
+                if log:
+                    self.Env.render()
+                    self.Env.logger.info(f"Action: {action}")
             
             # Append total rewards and steps after the episode ends
-            self.total_reward_list.append(reward)
+            self.total_reward_list.append(total_reward)
             self.total_steps_list.append(steps)
             
             if save_model == True:
@@ -192,7 +199,7 @@ class TemporalDifference:
                     self.Q[state][action] += self.alpha * (G - self.Q[state][action])
 
         if episode % checkpoint_interval == 0:
-            print(f'Sum of rewards at episode {episode} is {reward}' )
+            print(f'Sum of rewards at episode {episode} is {total_reward}' )
             
         print(f"Truncated episodes: {truncated_count}")
 
@@ -350,30 +357,20 @@ class TemporalDifference:
         #     plt.show()
 
 class RuleBasedAgent:
-    def __init__(self, initial_distance=4000, num_lanes=5, strategy='random', change_lane_percentage=50, rest=True, rest_percentage=0.2, fatigue_threshold=5):
+    def __init__(self, initial_distance=4000, num_lanes=5, strategy='fastest_adjacent'):
         """
         Initialize the Agent with a specified strategy.
         
         Args:
-        - strategy (str): The strategy to use ('random', 'rule_based', 'rule_based_2').
-        - change_lane_percentage (float): Percentage chance of changing lanes (0-100), used in random strategy.
+        - strategy (str): The strategy to use ('fastest_adjacent', 'stay').
         """
         self.strategy = strategy
-        self.change_lane_percentage = max(0, min(100, change_lane_percentage))
         self.initial_distance = initial_distance
         self.num_lanes = num_lanes
-        self.rest = rest
-        self.rest_percentage = rest_percentage
-        self.fatigue_threshold = fatigue_threshold
         
         self.current_lane = None
-        self.fatigue_counter = None
         self.clearance_rates = None
-        
-        # Thresholds for rule-based strategies
-        self.base_slow_threshold = 0.8
-        self.base_fast_threshold = 1.2
-    
+
     def choose_action(self, state):
         """
         Choose an action based on the current state and the selected strategy.
@@ -382,106 +379,33 @@ class RuleBasedAgent:
         - state (np.array): Flattened state containing past three time steps.
         
         Returns:
-        - action (int): 0 (move left), 1 (stay), 2 (move right), or 3 (rest)
+        - action (int): 0 (move left), 1 (stay), or 2 (move right)
         """
         
         self.current_lane = int(state[17])  # Current lane at time step t
-        self.fatigue_counter = int(state[18])  # Fatigue counter at time step t
         self.clearance_rates = state[19:24]  # Clearance rates at time step t
-        self.distance = state[16]
-        
-        if self.strategy == 'random':
-            return self._choose_action_random()
-        elif self.strategy == 'rule_based':
-            return self._choose_action_rule_based()
-        elif self.strategy == 'rule_based_2':
-            return self._choose_action_rule_based_2()
+
+        if self.strategy == 'fastest_adjacent':
+            return self._choose_action_fastest_adjacent()
+        elif self.strategy == 'stay':
+            return 1  # Always stay in the current lane
         else:
-            raise ValueError("Invalid strategy. Choose 'random', 'rule_based', or 'rule_based_2'.")
+            raise ValueError("Invalid strategy. Choose 'fastest_adjacent' or 'stay'.")
 
-    def _choose_action_random(self):
-        """Random strategy: choose a random lane change based on change_lane_percentage."""
-                
-        if self.rest and random.random() < self.rest_percentage and self.fatigue_counter > 0 and self.current_lane in [1, self.num_lanes]:
-            return 3
+    def _choose_action_fastest_adjacent(self):
+        """Selects the adjacent lane with the highest clearance rate if it's better than the current lane."""
         
-        # Decide whether to change lane based on the percentage
-        if random.random() * 100 < self.change_lane_percentage:
-            possible_actions = []
-            if self.current_lane > 1:
-                possible_actions.append(0)  # Can move left
-            if self.current_lane < self.num_lanes:
-                possible_actions.append(2)   # Can move right
-            
-            if possible_actions:
-                return random.choice(possible_actions)
+        # Get the clearance rate for the current lane
+        current_lane_rate = self.clearance_rates[self.current_lane - 1]
         
-        return 1  # Stay in the current lane
-
-    def _choose_action_rule_based(self):
-        """Rule-based strategy: move to the lane with the highest clearance rate."""
-
-        if self.rest and self.fatigue_counter > self.fatigue_threshold and self.current_lane in [1, self.num_lanes]:
-            return 3
+        # Check adjacent lanes' clearance rates
+        left_lane_rate = self.clearance_rates[self.current_lane - 2] if self.current_lane > 1 else float('-inf')
+        right_lane_rate = self.clearance_rates[self.current_lane] if self.current_lane < self.num_lanes else float('-inf')
         
-        # Find the lane with the highest clearance rate
-        best_lane = np.argmax(self.clearance_rates) + 1  # +1 to align with 1-based lane indexing
-
-        if best_lane == self.current_lane:
-            return 1  # Stay in the current lane
-        else:
-            return self._get_best_action(self.current_lane, best_lane)
-        
-    def _choose_action_rule_based_2(self):
-        """Advanced rule-based strategy with dynamic thresholds."""
-        
-        if self.rest and self.fatigue_counter > self.fatigue_threshold and self.current_lane in [1, self.num_lanes]:
-            return 3
-        
-        avg_clearance = np.mean(self.clearance_rates)
-        
-        slow_threshold = self.base_slow_threshold + (0.2 * self.distance / self.initial_distance)
-        fast_threshold = self.base_fast_threshold - (0.2 * self.distance / self.initial_distance)
-
-        # Check if the current lane is too slow
-        if self.clearance_rates[self.current_lane - 1] < avg_clearance * slow_threshold:
-            left_lane_rate = self.clearance_rates[self.current_lane - 2] if self.current_lane > 1 else float('-inf')
-            right_lane_rate = self.clearance_rates[self.current_lane] if self.current_lane < len(self.clearance_rates) else float('-inf')
-            current_lane_rate = self.clearance_rates[self.current_lane - 1]
-            
-            if left_lane_rate > current_lane_rate and left_lane_rate >= right_lane_rate:
-                return 0  # Move to the left lane
-            elif right_lane_rate > current_lane_rate and right_lane_rate > left_lane_rate:
-                return 2   # Move to the right lane
-
-        # Check if any adjacent lane is significantly faster
-        left_significantly_faster = (
-            self.current_lane > 1 and self.clearance_rates[self.current_lane - 2] > self.clearance_rates[self.current_lane - 1] * fast_threshold)
-        right_significantly_faster = (
-            self.current_lane < len(self.clearance_rates) and self.clearance_rates[self.current_lane] > self.clearance_rates[self.current_lane - 1] * fast_threshold)
-
-        if left_significantly_faster and (not right_significantly_faster or self.clearance_rates[self.current_lane - 2] >= self.clearance_rates[self.current_lane]):
-            return 0  # Move left if it's significantly faster
-        elif right_significantly_faster:
-            return 2   # Move right if it's significantly faster
-
-        return 1  # Stay in the current lane
-
-    def _get_best_action(self, current_lane, target_lane):
-        """
-        Determine the best action to move towards the target lane.
-        
-        Args:
-        - current_lane: The current lane (1-based)
-        - target_lane: The target lane (1-based)
-        - num_lanes: Total number of lanes
-        
-        Returns:
-        - action: -1 (move left), 0 (stay), or 1 (move right)
-        """
-        if current_lane < target_lane:
-            return 2  # Move right
-        elif current_lane > target_lane:
+        # Move to the adjacent lane with the highest clearance rate if it's better than the current lane
+        if left_lane_rate > current_lane_rate and left_lane_rate >= right_lane_rate:
             return 0  # Move left
+        elif right_lane_rate > current_lane_rate and right_lane_rate > left_lane_rate:
+            return 2  # Move right
         else:
-            return 1  # Stay (should not happen in this context)
+            return 1  # Stay in the current lane if neither adjacent lane is faster

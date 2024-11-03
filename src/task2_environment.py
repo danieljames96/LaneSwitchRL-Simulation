@@ -67,7 +67,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.reset()
         self.logger.debug("Environment initialized.")
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, options=None):
         """
         Resets the environment to the initial state.
         Returns:
@@ -78,7 +78,10 @@ class CustomTrafficEnvironment(gym.Env):
         
         # Initialize the state
         self.distance = self.initial_distance
-        self.current_lane = 1  # Always start from first lane
+        if options:
+            self.current_lane = options.get('starting_lane', 1)
+        else:
+            self.current_lane = 1
         self.is_raining = False
         # Initialize clearance rates randomly between 15 and 20 for all lanes
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
@@ -148,7 +151,7 @@ class CustomTrafficEnvironment(gym.Env):
             else:
                 self.logger.debug("Lane change failed.")
         else:
-            self.logger.warning("Lane change action out of bounds.")
+            self.logger.warning(f"Lane change action out of bounds. Current lane: {self.current_lane}, New Lane: {new_lane},  Action: {action}")
         
         return penalty
 
@@ -227,20 +230,21 @@ class CustomTrafficEnvironment(gym.Env):
         if mapped_action == 2:
             if self.current_lane == 1 or self.current_lane == self.lanes:
                 self.fatigue_counter = 0 # Reset fatigue counter
-                reward -= 2
+                reward -= 20
                 self.logger.debug("Rest action taken; fatigue counter reset.")
             else:
                 # Invalid rest action, penalize for attempting to rest in middle lanes
-                reward -= 10
+                reward -= 30
                 self.logger.warning("Invalid rest action in middle lane.")
+            self._update_clearance_rates()
         
         else:
             # Increment fatigue counter and calculate fatigue penalty
-            if random.random() < 0.5 and self.fatigue_counter < self.max_fatigue:
-                self.fatigue_counter += 1
+            # if random.random() < 0.5 and self.fatigue_counter < self.max_fatigue:
+            #     self.fatigue_counter += 1
             
-            fatigue_penalty = self._calculate_fatigue_penalty()
-            reward -= fatigue_penalty
+            # fatigue_penalty = self._calculate_fatigue_penalty()
+            # reward -= fatigue_penalty
 
             # Handle lane change if not staying
             if mapped_action != 0:
@@ -252,7 +256,7 @@ class CustomTrafficEnvironment(gym.Env):
 
             # Compute the distance covered in the current lane
             clearance_rate = self.clearance_rates[self.current_lane - 1]
-            distance_covered = clearance_rate if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
+            distance_covered = clearance_rate # if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
             self.distance -= distance_covered
             self.distance = round(self.distance, self.rounding_precision)
 
