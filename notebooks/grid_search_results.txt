@@ -1,0 +1,14 @@
+Grid Search Results:
+
+Best parameters: {'batch_size': 64, 'clip_range': 0.2, 'ent_coef': 0.0, 'gae_lambda': 0.95, 'gamma': 0.99, 'learning_rate': 0.0003, 'n_epochs': 20, 'n_steps': 2048, 'policy': 'MlpPolicy', 'policy_kwargs': {'net_arch': [{'pi': [64, 64], 'vf': [64, 64]}]}}
+Best reward: -7089.62
+
+All configurations:
+
+Configuration 1:
+Parameters: {'batch_size': 64, 'clip_range': 0.2, 'ent_coef': 0.0, 'gae_lambda': 0.95, 'gamma': 0.99, 'learning_rate': 0.0003, 'n_epochs': 10, 'n_steps': 2048, 'policy': 'MlpPolicy', 'policy_kwargs': {'net_arch': [{'pi': [64, 64], 'vf': [64, 64]}]}}
+Mean reward: -11784.89 ± 14988.62
+
+Configuration 2:
+Parameters: {'batch_size': 64, 'clip_range': 0.2, 'ent_coef': 0.0, 'gae_lambda': 0.95, 'gamma': 0.99, 'learning_rate': 0.0003, 'n_epochs': 20, 'n_steps': 2048, 'policy': 'MlpPolicy', 'policy_kwargs': {'net_arch': [{'pi': [64, 64], 'vf': [64, 64]}]}}
+Mean reward: -7089.62 ± 11986.09
