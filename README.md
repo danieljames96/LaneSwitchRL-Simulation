@@ -44,60 +44,30 @@ The flattened state array includes the last three time steps, each containing in
 |-----------|--------------------------|----------------|
 | 0         | Distance                 | t-2            |
 | 1         | Current Lane             | t-2            |
-| 2         | Fatigue Counter          | t-2            |
-| 3         | Clearance Rate (Lane 1)  | t-2            |
-| 4         | Clearance Rate (Lane 2)  | t-2            |
-| 5         | Clearance Rate (Lane 3)  | t-2            |
-| 6         | Clearance Rate (Lane 4)  | t-2            |
-| 7         | Clearance Rate (Lane 5)  | t-2            |
-| 8         | Distance                 | t-1            |
-| 9         | Current Lane             | t-1            |
-| 10        | Fatigue Counter          | t-1            |
-| 11        | Clearance Rate (Lane 1)  | t-1            |
-| 12        | Clearance Rate (Lane 2)  | t-1            |
-| 13        | Clearance Rate (Lane 3)  | t-1            |
-| 14        | Clearance Rate (Lane 4)  | t-1            |
-| 15        | Clearance Rate (Lane 5)  | t-1            |
-| 16        | Distance                 | t              |
-| 17        | Current Lane             | t              |
-| 18        | Fatigue Counter          | t              |
-| 19        | Clearance Rate (Lane 1)  | t              |
-| 20        | Clearance Rate (Lane 2)  | t              |
-| 21        | Clearance Rate (Lane 3)  | t              |
-| 22        | Clearance Rate (Lane 4)  | t              |
-| 23        | Clearance Rate (Lane 5)  | t              |
+| 2         | Clearance Rate (Lane 1)  | t-2            |
+| 3         | Clearance Rate (Lane 2)  | t-2            |
+| 4         | Clearance Rate (Lane 3)  | t-2            |
+| 5         | Clearance Rate (Lane 4)  | t-2            |
+| 6         | Clearance Rate (Lane 5)  | t-2            |
+| 7         | Distance                 | t-1            |
+| 8         | Current Lane             | t-1            |
+| 9         | Clearance Rate (Lane 1)  | t-1            |
+| 10        | Clearance Rate (Lane 2)  | t-1            |
+| 11        | Clearance Rate (Lane 3)  | t-1            |
+| 12        | Clearance Rate (Lane 4)  | t-1            |
+| 13        | Clearance Rate (Lane 5)  | t-1            |
+| 14        | Distance                 | t              |
+| 15        | Current Lane             | t              |
+| 16        | Clearance Rate (Lane 1)  | t              |
+| 17        | Clearance Rate (Lane 2)  | t              |
+| 18        | Clearance Rate (Lane 3)  | t              |
+| 19        | Clearance Rate (Lane 4)  | t              |
+| 20        | Clearance Rate (Lane 5)  | t              |
 
 **Total Length**: 24 elements
 
 ### **Min Clearance Rate**
 The minimum clearance rate is set to a specific number > 0 to ensure that the traffic is moving and does not stagnate to zero.
-
-### **Fatigue**
-1. New Action for Rest
-    - Expanded **action space** to `Discrete(4)` to include the **'rest' action**:
-        - **0**: Move left
-        - **1**: Stay
-        - **2**: Move right
-        - **3**: Rest (only available in lanes 1 or 5).
-
-2. Fatigue Mechanism Added
-    - Introduced a **fatigue counter** that stochastically (random chance) increments each step and resets when the agent takes the **'rest' action**.
-    - Fatigue penalty grows over time and is subtracted from the reward.
-    - Limited at **max_fatigue** at which point distance covered is halved.
-
-3. Fatigue Growth Options
-    - Added linear and quadratic growth options for fatigue penalties.
-
-4. Observation Space Update
-    - Added **fatigue counter** to the observation space, making it visible to the agent.
-
-5. Reward Shaping for Rest
-    - Taking the **'rest' action** resets the fatigue counter but incurs a small penalty.
-    - Attempting to rest in invalid lanes results in a higher penalty.
-    - Reaching max fatigue results in a higher penalty.
-
-6. Adjusted `step()` Method
-    - Modified the `step()` method to handle the new action and fatigue penalties. The agent does not cover any distance in this time step.
 
 ### **Rainfall Condition**
 
