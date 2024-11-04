@@ -27,8 +27,8 @@ class TemporalDifference:
         self.gamma = gamma
         self.oiv = oiv
 
-        # Action space: 4 actions (0: move left, 1: stay, 2: move right, 3: rest)
-        self.action_space = 3 # 4
+        # Action space: 3 actions (0: move left, 1: stay, 2: move right)
+        self.action_space = 3
 
         # use nested dictionaries for V, Q, E.
         # {state: [s_a1, s_a2, s_a3]}
@@ -53,7 +53,7 @@ class TemporalDifference:
     # define epsilon greedypolicy
     def epsilon_greedy_policy(self, state):
         if np.random.rand() < self.epsilon:
-            return random.randint(0,2)
+            return random.randint(0, self.action_space-1)
         else:
             return self.get_best_action(state)
     
@@ -70,12 +70,11 @@ class TemporalDifference:
         - transformed_state: Tuple containing the normalized distance percentage and discrete clearance rates.
         """
         # Normalize distance as a percentage of initial distance
-        distance_percentage = int((state[16] / initial_distance) * 10)
+        distance_percentage = int((state[14] / initial_distance) * 10)
         
         # Get current lane and clearance rates for adjacent lanes
-        current_lane = int(state[17])
-        # fatigue_counter = 1 if int(state[18]) > 3 else 0
-        clearance_rates = state[19:]
+        current_lane = int(state[15])
+        clearance_rates = state[16:]
         
         # Discretize clearance rates to specified levels (e.g., 1 to 10)
         min_rate, max_rate = 5, max(20, max(clearance_rates))

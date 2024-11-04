@@ -7,7 +7,7 @@ import logging
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, max_fatigue=10, max_fatigue_penalty=50, fatigue_growth='linear', rain_probability=0.1, max_time_steps = 10000, logging_level=logging.INFO):
+    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, logging_level=logging.INFO):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -16,7 +16,6 @@ class CustomTrafficEnvironment(gym.Env):
         super(CustomTrafficEnvironment, self).__init__()
         
         # Configure self.logger
-        # self.logger.basicConfig(level=self.logger_level, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging_level)
         log_file='./logs/environment_logs/custom_traffic_env.log'
@@ -42,27 +41,23 @@ class CustomTrafficEnvironment(gym.Env):
         
         self.lanes = lanes
         self.initial_distance = initial_distance
-        self.max_fatigue = max_fatigue
-        self.fatigue_growth = fatigue_growth
         self.rain_probability = rain_probability
         self.max_time_steps = max_time_steps
-        self.max_fatigue_penalty = max_fatigue_penalty
         self.is_raining = False
         self.state_history = []
         self.rounding_precision = 1
         self.clearance_rate_min = 5
-        self.fatigue_counter = 0
         
-        # Define action space (-1: left, 0: stay, 1: right, 2: rest)
-        self.action_space = spaces.Discrete(4)
+        # Define action space (0: left, 1: stay, 2: right)
+        self.action_space = spaces.Discrete(3)
         
-        # Define observation space: (distance, current lane, fatigue counter, clearance rates)
-        low_obs = np.array([0, 1, 0] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
-        high_obs = np.array([self.initial_distance] + [lanes] + [self.max_fatigue] + [float('inf')] * self.lanes, dtype=np.float32)
+        # Define observation space: (distance, current lane, clearance rates)
+        low_obs = np.array([0, 1] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
+        high_obs = np.array([self.initial_distance] + [lanes] + [float('inf')] * self.lanes, dtype=np.float32)
         self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
         
         # Define action mapping
-        self.action_mapping = {0: -1, 1: 0, 2: 1, 3: 2}
+        self.action_mapping = {0: -1, 1: 0, 2: 1}
         
         self.reset()
         self.logger.debug("Environment initialized.")
@@ -116,23 +111,6 @@ class CustomTrafficEnvironment(gym.Env):
         
         self.logger.debug(f"Observation generated: {flat_state}")
         return flat_state.astype(np.float32)
-    
-    def _calculate_fatigue_penalty(self):
-        """
-        Calculate the fatigue penalty based on the growth function.
-        """
-        if self.fatigue_counter >= self.max_fatigue:
-            penalty = self.max_fatigue_penalty
-        else:
-            if self.fatigue_growth == 'linear':
-                penalty = 2 * self.fatigue_counter
-            elif self.fatigue_growth == 'quadratic':
-                penalty = self.fatigue_counter ** 2
-            else:
-                penalty = self.fatigue_counter
-        
-        self.logger.debug(f"Fatigue penalty calculated: {penalty}")
-        return penalty
         
     def _attempt_lane_change(self, action):
         """
@@ -225,48 +203,28 @@ class CustomTrafficEnvironment(gym.Env):
         
         # Time penalty
         reward -= 10
-        
-        # Handle 'rest' action
-        if mapped_action == 2:
-            if self.current_lane == 1 or self.current_lane == self.lanes:
-                self.fatigue_counter = 0 # Reset fatigue counter
-                reward -= 20
-                self.logger.debug("Rest action taken; fatigue counter reset.")
-            else:
-                # Invalid rest action, penalize for attempting to rest in middle lanes
-                reward -= 30
-                self.logger.warning("Invalid rest action in middle lane.")
-            self._update_clearance_rates()
-        
-        else:
-            # Increment fatigue counter and calculate fatigue penalty
-            # if random.random() < 0.5 and self.fatigue_counter < self.max_fatigue:
-            #     self.fatigue_counter += 1
-            
-            # fatigue_penalty = self._calculate_fatigue_penalty()
-            # reward -= fatigue_penalty
 
-            # Handle lane change if not staying
-            if mapped_action != 0:
-                reward += self._attempt_lane_change(mapped_action)
-            # No action needed for staying in the current lane
+        # Handle lane change if not staying
+        if mapped_action != 0:
+            reward += self._attempt_lane_change(mapped_action)
+        # No action needed for staying in the current lane
 
-            # Update lane clearance rates based on neighboring lanes
-            self._update_clearance_rates()
+        # Update lane clearance rates based on neighboring lanes
+        self._update_clearance_rates()
 
-            # Compute the distance covered in the current lane
-            clearance_rate = self.clearance_rates[self.current_lane - 1]
-            distance_covered = clearance_rate # if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
-            self.distance -= distance_covered
-            self.distance = round(self.distance, self.rounding_precision)
+        # Compute the distance covered in the current lane
+        clearance_rate = self.clearance_rates[self.current_lane - 1]
+        distance_covered = clearance_rate # if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
+        self.distance -= distance_covered
+        self.distance = round(self.distance, self.rounding_precision)
 
-            # Reward for distance covered
-            reward += distance_covered
+        # Reward for distance covered
+        reward += distance_covered
         
         reward = round(reward, self.rounding_precision)
 
         # Now, after all the updates for the current time step, append the state to history
-        self.state_history.append((self.distance, self.current_lane, self.fatigue_counter, *self.clearance_rates))
+        self.state_history.append((self.distance, self.current_lane, *self.clearance_rates))
 
         # Check if the episode is done (if the destination is reached)
         if self.distance <= 0:
@@ -297,6 +255,5 @@ class CustomTrafficEnvironment(gym.Env):
             self.logger.info(f"Distance to Destination: {self.distance}")
             self.logger.info(f"Current Lane: {self.current_lane}")
             self.logger.info(f"Clearance Rates: {self.clearance_rates}")
-            self.logger.info(f"Fatigue Counter: {self.fatigue_counter}")
             self.logger.info(f"Is Raining: {self.is_raining}")
             self.logger.info('**************************************************')
