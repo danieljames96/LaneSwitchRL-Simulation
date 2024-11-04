@@ -19,7 +19,7 @@ logger.setLevel(logging.INFO)
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, logging_enabled=False):
+    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, accident_threshold=0.5, accident_probability = 0.01, speed_limit=20, logging_enabled=False):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -37,6 +37,12 @@ class CustomTrafficEnvironment(gym.Env):
         self.clearance_rate_min = 5
         self.logger = logger
         self.logging_enabled = logging_enabled
+        self.risk_factor = 0
+        self.accident_threshold = accident_threshold
+        self.accident_probability = accident_probability
+        self.speed_limit = speed_limit
+        self.safe_speed = 7
+        self.accident_penalty = -1000
         
         # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
@@ -91,8 +97,9 @@ class CustomTrafficEnvironment(gym.Env):
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
 
         # Reset state history
-        self.state_history = [(self.distance, self.current_lane, *self.clearance_rates)]
+        self.state_history = [(self.distance, self.current_lane, self.risk_factor, *self.clearance_rates)]
         self.time_step = 0
+        self.risk_factor = 0
         
         self.logger.debug("Environment reset.")
         obs = self._get_obs()
@@ -189,6 +196,34 @@ class CustomTrafficEnvironment(gym.Env):
 
         self.clearance_rates = updated_rates
         self.logger.debug("Clearance rates updated.")
+    
+    def _accident_check(self, action):
+        # Check for accidents based on risk factor and accident probability
+        if action != 0:
+            self.risk_factor = min(self.risk_factor+0.05, 1)
+        else:
+            self.risk_factor = max(self.risk_factor-0.05, 0)
+            
+        if self.is_raining:
+            self.risk_factor = min(self.risk_factor+0.1, 1)
+        
+        clearance_rate = self.clearance_rates[self.current_lane - 1]
+        if clearance_rate > self.speed_limit:
+            self.risk_factor = min(self.risk_factor+0.1, 1)
+        elif clearance_rate <= self.safe_speed:
+            self.risk_factor = max(self.risk_factor-0.1, 1)
+            
+        if self.risk_factor >= self.accident_threshold and random.random() < self.accident_probability:
+            self.logger.debug("Accident occurred.")
+            truncated=True
+            penalty = self.accident_penalty
+        else:
+            truncated=False
+            penalty = 0
+            
+        self.risk_factor = round(self.risk_factor, 2)
+            
+        return truncated, penalty
 
     def step(self, action):
         """
@@ -228,6 +263,10 @@ class CustomTrafficEnvironment(gym.Env):
         distance_covered = clearance_rate
         self.distance -= distance_covered
         self.distance = round(self.distance, self.rounding_precision)
+        
+        truncated, accident_penalty = self._accident_check(mapped_action)
+        
+        reward += accident_penalty
 
         # Reward for distance covered
         reward += distance_covered
@@ -235,7 +274,7 @@ class CustomTrafficEnvironment(gym.Env):
         reward = round(reward, self.rounding_precision)
 
         # Now, after all the updates for the current time step, append the state to history
-        self.state_history.append((self.distance, self.current_lane, *self.clearance_rates))
+        self.state_history.append((self.distance, self.current_lane, self.risk_factor, *self.clearance_rates))
 
         # Check if the episode is done (if the destination is reached)
         if self.distance <= 0:
@@ -269,4 +308,5 @@ class CustomTrafficEnvironment(gym.Env):
             self._log(f"Current Lane: {self.current_lane}")
             self._log(f"Clearance Rates: {self.clearance_rates}")
             self._log(f"Is Raining: {self.is_raining}")
+            self._log(f"Risk Factor: {self.risk_factor}")
             self._log('**************************************************')

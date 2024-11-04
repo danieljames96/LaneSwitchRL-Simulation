@@ -38,33 +38,36 @@ RL-based simulation of lane-switching in traffic
 
 ### State Index Mapping
 
-The flattened state array includes the last three time steps, each containing information about the distance, current lane, fatigue counter, and clearance rates.
+The flattened state array includes the last three time steps, each containing information about the distance, current lane, risk factor, and clearance rates.
 
 | **Index** | **Element**              | **Time Step**  |
 |-----------|--------------------------|----------------|
 | 0         | Distance                 | t-2            |
 | 1         | Current Lane             | t-2            |
-| 2         | Clearance Rate (Lane 1)  | t-2            |
-| 3         | Clearance Rate (Lane 2)  | t-2            |
-| 4         | Clearance Rate (Lane 3)  | t-2            |
-| 5         | Clearance Rate (Lane 4)  | t-2            |
-| 6         | Clearance Rate (Lane 5)  | t-2            |
-| 7         | Distance                 | t-1            |
-| 8         | Current Lane             | t-1            |
-| 9         | Clearance Rate (Lane 1)  | t-1            |
-| 10        | Clearance Rate (Lane 2)  | t-1            |
-| 11        | Clearance Rate (Lane 3)  | t-1            |
-| 12        | Clearance Rate (Lane 4)  | t-1            |
-| 13        | Clearance Rate (Lane 5)  | t-1            |
-| 14        | Distance                 | t              |
-| 15        | Current Lane             | t              |
-| 16        | Clearance Rate (Lane 1)  | t              |
-| 17        | Clearance Rate (Lane 2)  | t              |
-| 18        | Clearance Rate (Lane 3)  | t              |
-| 19        | Clearance Rate (Lane 4)  | t              |
-| 20        | Clearance Rate (Lane 5)  | t              |
+| 2         | Risk Factor              | t-2            |
+| 3         | Clearance Rate (Lane 1)  | t-2            |
+| 4         | Clearance Rate (Lane 2)  | t-2            |
+| 5         | Clearance Rate (Lane 3)  | t-2            |
+| 6         | Clearance Rate (Lane 4)  | t-2            |
+| 7         | Clearance Rate (Lane 5)  | t-2            |
+| 8         | Distance                 | t-1            |
+| 9         | Current Lane             | t-1            |
+| 10        | Risk Factor              | t-1            |
+| 11        | Clearance Rate (Lane 1)  | t-1            |
+| 12        | Clearance Rate (Lane 2)  | t-1            |
+| 13        | Clearance Rate (Lane 3)  | t-1            |
+| 14        | Clearance Rate (Lane 4)  | t-1            |
+| 15        | Clearance Rate (Lane 5)  | t-1            |
+| 16        | Distance                 | t              |
+| 17        | Current Lane             | t              |
+| 18        | Risk Factor              | t              |
+| 19        | Clearance Rate (Lane 1)  | t              |
+| 20        | Clearance Rate (Lane 2)  | t              |
+| 21        | Clearance Rate (Lane 3)  | t              |
+| 22        | Clearance Rate (Lane 4)  | t              |
+| 23        | Clearance Rate (Lane 5)  | t              |
 
-**Total Length**: 21 elements
+**Total Length**: 24 elements
 
 ### **Min Clearance Rate**
 The minimum clearance rate is set to a specific number > 0 to ensure that the traffic is moving and does not stagnate to zero.
@@ -86,3 +89,5 @@ The minimum clearance rate is set to a specific number > 0 to ensure that the tr
 3. Design Considerations
     - The **`is_raining`** flag is not included in the state to maintain complexity and ensure the agent learns from indirect observations.
     - This change aims to introduce variability and challenge, simulating realistic weather-induced impacts on traffic.
+
+### Risk Factor

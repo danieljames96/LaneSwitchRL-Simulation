@@ -6,10 +6,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import optuna
 
 # TD class with states represented with integers
 class TemporalDifference:
-    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9):
+    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -26,6 +27,8 @@ class TemporalDifference:
         self.lambd = lambd
         self.gamma = gamma
         self.oiv = oiv
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
 
         # Action space: 3 actions (0: move left, 1: stay, 2: move right)
         self.action_space = 3
@@ -42,6 +45,7 @@ class TemporalDifference:
     def get_best_action(self, state: tuple):
         # if state not present, act random
         if state not in self.Q.keys():
+            self.Env._log(f"State not found in Q: {state}")
             return random.randint(0,self.action_space-1)
 
         # get the dictionary of actions and their values for this state
@@ -70,11 +74,12 @@ class TemporalDifference:
         - transformed_state: Tuple containing the normalized distance percentage and discrete clearance rates.
         """
         # Normalize distance as a percentage of initial distance
-        distance_percentage = int((state[14] / initial_distance) * 10)
+        distance_percentage = int((state[16] / initial_distance) * 10)
         
         # Get current lane and clearance rates for adjacent lanes
-        current_lane = int(state[15])
-        clearance_rates = state[16:]
+        current_lane = int(state[17])
+        risk_factor = int(state[18])
+        clearance_rates = state[19:]
         
         # Discretize clearance rates to specified levels (e.g., 1 to 10)
         min_rate, max_rate = 5, max(20, max(clearance_rates))
@@ -92,8 +97,8 @@ class TemporalDifference:
         right_lane_rate = discretize_rate(right_lane_rate)
         current_lane_rate = discretize_rate(current_lane_rate)
 
-        # Return transformed state with normalized distance and discrete clearance rates
-        return (current_lane, current_lane_rate, left_lane_rate, right_lane_rate) # distance_percentage, 
+        # Return transformed state with current lane, discrete clearance rates and discrete risk factor
+        return (current_lane, current_lane_rate, left_lane_rate, right_lane_rate, risk_factor) # distance_percentage, 
     
     def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000):
 
@@ -117,9 +122,6 @@ class TemporalDifference:
 
             #get first action
             action = self.epsilon_greedy_policy(state)
-            
-            self.Env.render()
-            self.Env._log(f"Action: {action}")
 
             while not terminated and not truncated:
                 #perform action
@@ -168,12 +170,12 @@ class TemporalDifference:
 
                 if truncated:
                     truncated_count += 1
+                    
+                # Decay epsilon after each episode
+                self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
                 # move to next state and action pair
                 state, action = next_state, next_action
-                
-                self.Env.render()
-                self.Env._log(f"Action: {action}")
             
             # Append total rewards and steps after the episode ends
             self.total_reward_list.append(total_reward)
@@ -352,6 +354,62 @@ class TemporalDifference:
         #     plt.xlabel('Episode')
         #     plt.ylabel('Average Reward')
         #     plt.show()
+        
+    def hyperparameter_tuning(self, hyperparameter_space, episodes=10000, on_policy=True, n_trials=50):
+        """
+        Perform hyperparameter tuning using Optuna.
+
+        Parameters:
+            hyperparameter_space (dict): Dictionary defining the ranges of hyperparameters to tune.
+            episodes (int): Number of training episodes for each trial.
+            n_trials (int): Number of trials to run for the Optuna study.
+
+        Returns:
+            tuple: The best agent instance and the best hyperparameters found.
+        """
+
+        def objective(trial):
+            # Define the hyperparameter space using Optuna's suggest functions
+            self.alpha = trial.suggest_float('alpha', *hyperparameter_space['alpha'], log=True)
+            self.gamma = trial.suggest_float('gamma', *hyperparameter_space['gamma'])
+            self.epsilon = 1.0
+            self.epsilon_decay = trial.suggest_float('epsilon_decay', *hyperparameter_space['epsilon_decay'])
+            self.epsilon_min = trial.suggest_float('epsilon_min', *hyperparameter_space['epsilon_min'])
+            self.lambd = trial.suggest_float('lambd', *hyperparameter_space['lambd'])
+
+            # Train the agent with the current hyperparameters
+            rewards = self.train(num_episodes=episodes, on_policy = on_policy)
+
+            # Calculate the average reward over the last 1000 episodes
+            average_reward = np.mean(rewards[-500:])
+            print(f"Trial {trial.number}: Average Reward = {average_reward:.2f}")
+
+            return average_reward
+
+        # Create a study and optimize the objective function
+        study = optuna.create_study(direction="maximize")
+        study.optimize(objective, n_trials=n_trials)
+
+        # Retrieve the best hyperparameters and best average reward
+        best_params = study.best_params
+        best_average_reward = study.best_value  # negate since we minimized -reward
+        # Instantiate the best agent with the optimized hyperparameters
+        best_agent = TemporalDifference(
+            self.env,
+            oiv = 0.1, 
+            alpha=best_params['alpha'], 
+            gamma=best_params['gamma'], 
+            epsilon=1.0, 
+            epsilon_decay=best_params['epsilon_decay'], 
+            epsilon_min=best_params['epsilon_min'], 
+            lambd=best_params['lambd']
+        )
+
+        print("\nBest Hyperparameters Found:")
+        print(best_params)
+        print(f"Best Average Reward: {best_average_reward:.2f}")
+
+        return best_agent, best_params
 
 class RuleBasedAgent:
     def __init__(self, initial_distance=4000, num_lanes=5, strategy='fastest_adjacent'):
@@ -379,8 +437,8 @@ class RuleBasedAgent:
         - action (int): 0 (move left), 1 (stay), or 2 (move right)
         """
         
-        self.current_lane = int(state[15])  # Current lane at time step t
-        self.clearance_rates = state[16:]  # Clearance rates at time step t
+        self.current_lane = int(state[17])  # Current lane at time step t
+        self.clearance_rates = state[19:]  # Clearance rates at time step t
 
         if self.strategy == 'fastest_adjacent':
             return self._choose_action_fastest_adjacent()
