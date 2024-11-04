@@ -93,9 +93,9 @@ class TemporalDifference:
         current_lane_rate = discretize_rate(current_lane_rate)
 
         # Return transformed state with normalized distance and discrete clearance rates
-        return (distance_percentage, current_lane, current_lane_rate, left_lane_rate, right_lane_rate) # fatigue_counter
+        return (current_lane, current_lane_rate, left_lane_rate, right_lane_rate) # distance_percentage, 
     
-    def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000, log = False):
+    def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000):
 
         #initialize list to store episode history
         self.total_reward_list = []
@@ -118,9 +118,8 @@ class TemporalDifference:
             #get first action
             action = self.epsilon_greedy_policy(state)
             
-            if log:
-                self.Env.render()
-                self.Env.logger.info(f"Action: {action}")
+            self.Env.render()
+            self.Env._log(f"Action: {action}")
 
             while not terminated and not truncated:
                 #perform action
@@ -173,9 +172,8 @@ class TemporalDifference:
                 # move to next state and action pair
                 state, action = next_state, next_action
                 
-                if log:
-                    self.Env.render()
-                    self.Env.logger.info(f"Action: {action}")
+                self.Env.render()
+                self.Env._log(f"Action: {action}")
             
             # Append total rewards and steps after the episode ends
             self.total_reward_list.append(total_reward)
@@ -381,8 +379,8 @@ class RuleBasedAgent:
         - action (int): 0 (move left), 1 (stay), or 2 (move right)
         """
         
-        self.current_lane = int(state[17])  # Current lane at time step t
-        self.clearance_rates = state[19:24]  # Clearance rates at time step t
+        self.current_lane = int(state[15])  # Current lane at time step t
+        self.clearance_rates = state[16:]  # Clearance rates at time step t
 
         if self.strategy == 'fastest_adjacent':
             return self._choose_action_fastest_adjacent()

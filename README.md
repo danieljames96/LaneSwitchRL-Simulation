@@ -64,7 +64,7 @@ The flattened state array includes the last three time steps, each containing in
 | 19        | Clearance Rate (Lane 4)  | t              |
 | 20        | Clearance Rate (Lane 5)  | t              |
 
-**Total Length**: 24 elements
+**Total Length**: 21 elements
 
 ### **Min Clearance Rate**
 The minimum clearance rate is set to a specific number > 0 to ensure that the traffic is moving and does not stagnate to zero.

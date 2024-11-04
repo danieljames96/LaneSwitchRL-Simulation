@@ -4,40 +4,28 @@ import gymnasium as gym
 from gymnasium import spaces
 import logging
 
+# Set up the logger
+logger = logging.getLogger(__name__)
+log_file='./logs/environment_logs/custom_traffic_env.log'
+if not logger.hasHandlers():
+    # handler = logging.StreamHandler()
+    handler = logging.FileHandler(log_file)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, logging_level=logging.INFO):
+    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, logging_enabled=False):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
         - initial_distance (int): The distance from destination.
         """
         super(CustomTrafficEnvironment, self).__init__()
-        
-        # Configure self.logger
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging_level)
-        log_file='./logs/environment_logs/custom_traffic_env.log'
-        
-        # Only add handlers if they are not already attached
-        if not self.logger.hasHandlers():
-            # File handler for writing logs to a file
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setLevel(logging_level)
-            
-            # Optional: Console handler for showing logs in the notebook output
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging_level)
-
-            # Set a format for the log messages
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            file_handler.setFormatter(formatter)
-            console_handler.setFormatter(formatter)
-            
-            # Add both handlers to the logger
-            self.logger.addHandler(file_handler)
-            # self.logger.addHandler(console_handler)
         
         self.lanes = lanes
         self.initial_distance = initial_distance
@@ -47,6 +35,8 @@ class CustomTrafficEnvironment(gym.Env):
         self.state_history = []
         self.rounding_precision = 1
         self.clearance_rate_min = 5
+        self.logger = logger
+        self.logging_enabled = logging_enabled
         
         # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
@@ -62,6 +52,25 @@ class CustomTrafficEnvironment(gym.Env):
         self.reset()
         self.logger.debug("Environment initialized.")
 
+    def _log(self, message, level=logging.INFO):
+        """
+        Log messages if logging is enabled.
+        
+        Parameters:
+            message (str): Message to log.
+            level (int): Logging level (e.g., INFO, DEBUG).
+        """
+        if self.logging_enabled:
+            self.logger.log(level, message)
+    
+    def enable_logging(self):
+        """Enable logging for debugging purposes."""
+        self.logging_enabled = True
+
+    def disable_logging(self):
+        """Disable logging to reduce console output."""
+        self.logging_enabled = False
+    
     def reset(self, seed=None, options=None):
         """
         Resets the environment to the initial state.
@@ -80,10 +89,9 @@ class CustomTrafficEnvironment(gym.Env):
         self.is_raining = False
         # Initialize clearance rates randomly between 15 and 20 for all lanes
         self.clearance_rates = np.round(np.random.uniform(15, 20, size=self.lanes), self.rounding_precision)
-        self.fatigue_counter = 0
 
         # Reset state history
-        self.state_history = [(self.distance, self.current_lane, self.fatigue_counter, *self.clearance_rates)]
+        self.state_history = [(self.distance, self.current_lane, *self.clearance_rates)]
         self.time_step = 0
         
         self.logger.debug("Environment reset.")
@@ -129,7 +137,7 @@ class CustomTrafficEnvironment(gym.Env):
             else:
                 self.logger.debug("Lane change failed.")
         else:
-            self.logger.warning(f"Lane change action out of bounds. Current lane: {self.current_lane}, New Lane: {new_lane},  Action: {action}")
+            self.logger.debug(f"Lane change action out of bounds. Current lane: {self.current_lane}, New Lane: {new_lane},  Action: {action}")
         
         return penalty
 
@@ -194,8 +202,11 @@ class CustomTrafficEnvironment(gym.Env):
         - truncated (bool): Whether the episode ended due to truncation (e.g., exceeding max time steps).
         - info (dict): Additional information about the environment.
         """
-        # Map the discrete action to the original action space (-1, 0, 1, 2)
+        # Map the discrete action to the original action space (-1, 0, 1)
         mapped_action = self.action_mapping[action]
+        
+        self._log(f"Taking action: {'left' if mapped_action==-1 else 'stay' if mapped_action==0 else 'right'}")
+        self.render()
         
         reward = 0
         terminated = False
@@ -214,7 +225,7 @@ class CustomTrafficEnvironment(gym.Env):
 
         # Compute the distance covered in the current lane
         clearance_rate = self.clearance_rates[self.current_lane - 1]
-        distance_covered = clearance_rate # if self.fatigue_counter < self.max_fatigue else clearance_rate / 2
+        distance_covered = clearance_rate
         self.distance -= distance_covered
         self.distance = round(self.distance, self.rounding_precision)
 
@@ -230,12 +241,14 @@ class CustomTrafficEnvironment(gym.Env):
         if self.distance <= 0:
             terminated = True
             self.distance = 0
+            self.render()
             self.logger.debug("Destination reached; episode terminated.")
 
         # Check if the episode is truncated (e.g., max time steps reached)
         self.time_step += 1
         if self.time_step >= self.max_time_steps:
             truncated = True
+            self.render()
             self.logger.debug("Maximum time steps reached; episode truncated.")
         
         # Return the next observation using _get_obs()
@@ -251,9 +264,9 @@ class CustomTrafficEnvironment(gym.Env):
         - mode (str): The mode of rendering. 'human' for console output.
         """
         if mode == 'human':
-            self.logger.info(f"Time Step: {self.time_step}")
-            self.logger.info(f"Distance to Destination: {self.distance}")
-            self.logger.info(f"Current Lane: {self.current_lane}")
-            self.logger.info(f"Clearance Rates: {self.clearance_rates}")
-            self.logger.info(f"Is Raining: {self.is_raining}")
-            self.logger.info('**************************************************')
+            self._log(f"Time Step: {self.time_step}")
+            self._log(f"Distance to Destination: {self.distance}")
+            self._log(f"Current Lane: {self.current_lane}")
+            self._log(f"Clearance Rates: {self.clearance_rates}")
+            self._log(f"Is Raining: {self.is_raining}")
+            self._log('**************************************************')
