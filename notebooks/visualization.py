@@ -124,23 +124,24 @@ def load_json_wrapped(json_path):
             print(f"Error reading JSON file: {e}")
             raise e
 
-# Function to extract timesteps data from JSON and cache it for later use
+# Function to extract timesteps data from the first line of JSON and cache it for later use
 def extract_timesteps_from_json(file_path):
     """
-    Extracts timestep data from a JSON file and caches it for later use.
+    Extracts timestep data from the first line of a JSON file and caches it for later use.
 
     Args:
     - file_path (str): Path to the JSON file containing timesteps data.
     """
     global cached_timesteps
     data_list = load_json_wrapped(file_path)  # Use wrapped method to load JSON file
-    cached_timesteps = []
-    for data in data_list:
-        if "Timesteps" in data:
-            cached_timesteps.extend(data["Timesteps"])
-    print("Timesteps data successfully cached, containing {} timesteps".format(len(cached_timesteps)))
+    
+    # Extract `Timesteps` data only from the first line
+    if data_list and "Timesteps" in data_list[0]:
+        cached_timesteps = data_list[0]["Timesteps"]
+        print("Timesteps data from the first line successfully cached, containing {} timesteps".format(len(cached_timesteps)))
+    else:
+        print("No Timesteps data found in the first line")
 
-# Function to plot a snapshot and return it as an image object
 def plot_snapshot_IO(env, clearance_history=[]):
     """
     Plots a snapshot of the environment state and returns it as an image object.
@@ -179,8 +180,8 @@ def plot_snapshot_IO(env, clearance_history=[]):
 
     ax.scatter([distance], [current_lane + 0.5], color='red', s=100, label="Agent")
 
-    ax.set_xlim(-100, distance + 300)  
-    ax.set_ylim(0.5, n_lanes + 3)
+    ax.set_xlim(0, distance + 300)  
+    ax.set_ylim(0.5, 6)  
     ax.set_xlabel("Distance (meters)")
     ax.set_ylabel("Lanes")
     ax.legend()
