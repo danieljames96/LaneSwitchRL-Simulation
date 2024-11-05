@@ -6,7 +6,7 @@ import logging
 
 # Set up the logger
 logger = logging.getLogger(__name__)
-log_file='./logs/environment_logs/custom_traffic_env.log'
+log_file='./logs/task2/custom_traffic_env.log'
 if not logger.hasHandlers():
     # handler = logging.StreamHandler()
     handler = logging.FileHandler(log_file)
@@ -19,7 +19,7 @@ logger.setLevel(logging.INFO)
 class CustomTrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, accident_threshold=0.5, accident_probability = 0.01, speed_limit=20, logging_enabled=False):
+    def __init__(self, lanes=5, initial_distance=4000, rain_probability=0.1, max_time_steps = 10000, accident_threshold=0.8, accident_probability = 0.005, speed_limit=22, logging_enabled=False):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -41,8 +41,13 @@ class CustomTrafficEnvironment(gym.Env):
         self.accident_threshold = accident_threshold
         self.accident_probability = accident_probability
         self.speed_limit = speed_limit
-        self.safe_speed = 7
-        self.accident_penalty = -1000
+        self.safe_speed = 10
+        self.accident_penalty = -500
+        self.high_risk_threshold = 0.8 * self.accident_threshold  # 80% of the accident threshold
+        self.high_risk_penalty = -30  # High-risk penalty
+        self.lane_change_penalty = -5
+        self.time_penalty = -10
+        self.distance_reward_factor = 2
         
         # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
@@ -135,7 +140,7 @@ class CustomTrafficEnvironment(gym.Env):
         Returns:
         - penalty (float): The penalty to be applied to the reward.
         """
-        penalty = -5
+        penalty = self.lane_change_penalty
         new_lane = self.current_lane + action
         if 1 <= new_lane <= self.lanes:
             if random.random() < 0.5:
@@ -199,29 +204,31 @@ class CustomTrafficEnvironment(gym.Env):
     
     def _accident_check(self, action):
         # Check for accidents based on risk factor and accident probability
+        penalty = 0
+        
         if action != 0:
             self.risk_factor = min(self.risk_factor+0.05, 1)
         else:
             self.risk_factor = max(self.risk_factor-0.05, 0)
-            
-        if self.is_raining:
-            self.risk_factor = min(self.risk_factor+0.1, 1)
         
         clearance_rate = self.clearance_rates[self.current_lane - 1]
         if clearance_rate > self.speed_limit:
             self.risk_factor = min(self.risk_factor+0.1, 1)
         elif clearance_rate <= self.safe_speed:
             self.risk_factor = max(self.risk_factor-0.1, 1)
-            
-        if self.risk_factor >= self.accident_threshold and random.random() < self.accident_probability:
+        
+        accident_chance = self.accident_probability * (self.risk_factor / self.accident_threshold)
+        
+        self.risk_factor = round(self.risk_factor, 2)
+        
+        if random.random() < accident_chance:
             self.logger.debug("Accident occurred.")
             truncated=True
-            penalty = self.accident_penalty
+            penalty += self.accident_penalty
         else:
             truncated=False
-            penalty = 0
-            
-        self.risk_factor = round(self.risk_factor, 2)
+            if self.risk_factor > self.accident_threshold:
+                penalty += self.risk_factor * -10
             
         return truncated, penalty
 
@@ -248,8 +255,15 @@ class CustomTrafficEnvironment(gym.Env):
         truncated = False
         
         # Time penalty
-        reward -= 10
-
+        reward += self.time_penalty
+        
+        
+        current_clearance_rate = self.clearance_rates[self.current_lane - 1]
+        new_clearance_rate = self.clearance_rates[self.current_lane - 1 + action]
+        
+        if new_clearance_rate < current_clearance_rate and current_clearance_rate < self.speed_limit:
+            reward += (current_clearance_rate - new_clearance_rate) * -5
+        
         # Handle lane change if not staying
         if mapped_action != 0:
             reward += self._attempt_lane_change(mapped_action)
@@ -268,8 +282,11 @@ class CustomTrafficEnvironment(gym.Env):
         
         reward += accident_penalty
 
+        if self.risk_factor >= self.high_risk_threshold and not truncated:
+            reward += self.high_risk_penalty  # Penalize for high risk
+        
         # Reward for distance covered
-        reward += distance_covered
+        reward += distance_covered * self.distance_reward_factor
         
         reward = round(reward, self.rounding_precision)
 

@@ -91,3 +91,12 @@ The minimum clearance rate is set to a specific number > 0 to ensure that the tr
     - This change aims to introduce variability and challenge, simulating realistic weather-induced impacts on traffic.
 
 ### Risk Factor
+
+1. Risk Accumulation Factors:
+    - Lane Changes: Risk increases when the agent changes lanes.
+    - High Speeds: Risk increases when the agent's clearance rate exceeds the speed limit.
+2. Risk Mitigation Factors:
+    - Staying in Lane: Risk decreases when the agent stays in the current lane.
+    - Low Speeds: Risk decreases when the clearance rate is at or below a safe speed.
+3. Accident Occurrence:
+    - If the risk factor exceeds a certain threshold and a random event occurs (based on accident_probability), an accident happens, leading to truncation of the episode and a significant penalty.

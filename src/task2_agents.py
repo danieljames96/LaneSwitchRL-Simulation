@@ -7,10 +7,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import optuna
+import json
 
 # TD class with states represented with integers
 class TemporalDifference:
-    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1):
+    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1, log_path='./logs/task2/training_logs.json'):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -29,6 +30,7 @@ class TemporalDifference:
         self.oiv = oiv
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
+        self.log_path = log_path
 
         # Action space: 3 actions (0: move left, 1: stay, 2: move right)
         self.action_space = 3
@@ -42,6 +44,30 @@ class TemporalDifference:
         self.best_Q = None
         self.best_reward = float('-inf')
 
+    def _initialize_statistics(self):
+        """Initialize statistics dictionary to store per-episode data."""
+        self.episode_statistics = {
+            "episode_rewards": [],
+            "episode_steps": [],
+            "lane_change_percentage": [],
+            "early_termination_percentage": [],
+            "clearance_rate_distribution": {
+                "5-10%": 0,
+                "10-20%": 0,
+                ">20%": 0
+            },
+            "risk_factor_exceedance_percentage": []
+        }
+        
+    def _update_clearance_statistics(self, clearance_rate):
+        """Update clearance rate distribution based on the current rate."""
+        if 5 <= clearance_rate < 10:
+            self.episode_statistics["clearance_rate_distribution"]["5-10%"] += 1
+        elif 10 <= clearance_rate < 20:
+            self.episode_statistics["clearance_rate_distribution"]["10-20%"] += 1
+        elif clearance_rate >= 20:
+            self.episode_statistics["clearance_rate_distribution"][">20%"] += 1
+    
     def get_best_action(self, state: tuple):
         # if state not present, act random
         if state not in self.Q.keys():
@@ -78,7 +104,7 @@ class TemporalDifference:
         
         # Get current lane and clearance rates for adjacent lanes
         current_lane = int(state[17])
-        risk_factor = int(state[18])
+        risk_factor = int(state[18] * 5)
         clearance_rates = state[19:]
         
         # Discretize clearance rates to specified levels (e.g., 1 to 10)
@@ -86,6 +112,7 @@ class TemporalDifference:
         left_lane_rate = (clearance_rates[current_lane - 2] if current_lane > 1 else None)
         right_lane_rate = (clearance_rates[current_lane] if current_lane < len(clearance_rates) else None)
         current_lane_rate = clearance_rates[current_lane - 1]
+        over_speed_limit = int(current_lane_rate > self.Env.speed_limit)
         
         # Discretize clearance rates within the specified range
         def discretize_rate(rate):
@@ -98,14 +125,17 @@ class TemporalDifference:
         current_lane_rate = discretize_rate(current_lane_rate)
 
         # Return transformed state with current lane, discrete clearance rates and discrete risk factor
-        return (current_lane, current_lane_rate, left_lane_rate, right_lane_rate, risk_factor) # distance_percentage, 
+        return (current_lane_rate, left_lane_rate, right_lane_rate, risk_factor, over_speed_limit) # distance_percentage, current_lane
     
-    def train(self, num_episodes = 1000 , on_policy = True, save_model = False, checkpoint_interval = 1000):
+    def train(self, num_episodes = 1000 , on_policy = True, save_model = False):
 
         #initialize list to store episode history
         self.total_reward_list = []
         self.total_steps_list = []
         truncated_count = 0
+        self._initialize_statistics()
+        lane_change_count = 0
+        early_termination_count = 0
 
         for episode in tqdm(range(num_episodes)):
             episode_memory = []  # to be used when lambd = 1
@@ -114,14 +144,16 @@ class TemporalDifference:
             state, _ = self.Env.reset()
             state = self.transform_state(state, self.Env.initial_distance)
             
-            terminated = False
-            truncated = False
+            terminated, truncated = False, False
             self.E.clear()
             steps = 0
-            total_reward = 0
+            episode_reward = 0
+            high_risk_exceedances = 0
 
             #get first action
             action = self.epsilon_greedy_policy(state)
+            if action != 1:
+                lane_change_count += 1
 
             while not terminated and not truncated:
                 #perform action
@@ -129,9 +161,17 @@ class TemporalDifference:
 
                 next_state = self.transform_state(next_state, self.Env.initial_distance)
 
+                # Check clearance rates
+                for rate in self.Env.clearance_rates:
+                    self._update_clearance_statistics(rate)
+                    
+                # Check risk factor exceedance
+                if self.Env.risk_factor > self.Env.high_risk_threshold:
+                    high_risk_exceedances += 1
+                
                 #accumulate steps and reward
                 steps += 1
-                total_reward += reward
+                episode_reward += reward
 
                 #get next state and action
                 next_action = self.epsilon_greedy_policy(next_state)
@@ -177,9 +217,21 @@ class TemporalDifference:
                 # move to next state and action pair
                 state, action = next_state, next_action
             
+            # Log episode-specific statistics
+            self.episode_statistics["episode_rewards"].append(episode_reward)
+            self.episode_statistics["episode_steps"].append(steps)
+            self.episode_statistics["risk_factor_exceedance_percentage"].append(high_risk_exceedances / steps * 100)
+            early_termination_count += int(truncated)
+            
+            # Lane change percentage calculation
+            if episode % 10 == 0:  # Log every 10 episodes for granularity
+                self.episode_statistics["lane_change_percentage"].append(lane_change_count / max(1, steps) * 100)
+        
             # Append total rewards and steps after the episode ends
-            self.total_reward_list.append(total_reward)
-            self.total_steps_list.append(steps)
+            self.total_reward_list.append(episode_reward)
+            
+            if not truncated:
+                self.total_steps_list.append(steps)
             
             if save_model == True:
                 # Calculate average reward over last 100 episodes (or all if less than 100)
@@ -196,13 +248,22 @@ class TemporalDifference:
                 for state, action, reward in reversed(episode_memory):
                     G = reward + self.gamma * G
                     self.Q[state][action] += self.alpha * (G - self.Q[state][action])
-
-        if episode % checkpoint_interval == 0:
-            print(f'Sum of rewards at episode {episode} is {total_reward}' )
+            
+        # Calculate final statistics after all episodes
+        self.episode_statistics["early_termination_percentage"].append(early_termination_count / num_episodes * 100)
+            
+        # Save statistics to JSON
+        self._save_statistics_to_json()
             
         print(f"Truncated episodes: {truncated_count}")
 
         return self.total_reward_list, self.total_steps_list
+    
+    def _save_statistics_to_json(self):
+        """Save the training statistics to a JSON file."""
+        with open(self.log_path, 'w') as file:
+            json.dump(self.episode_statistics, file, indent=4)
+        print(f"Training statistics saved to {self.log_path}")
     
     def plot_training_metrics(self, window_size=50):
         """
@@ -254,7 +315,115 @@ class TemporalDifference:
         plt.tight_layout()
         return fig
     
-    def evaluate(self, num_episodes=100, checkpoint_interval=50):
+    def q_table_to_dataframe(self):
+        
+        data = {
+            "State": [],
+            "Left": [],
+            "Stay": [],
+            "Right": []
+        }
+    
+        for state, q_values in self.Q.items():
+            data["State"].append(state)
+            for i in range(len(q_values)):
+                data['Left' if i==0 else 'Stay' if i==1 else 'Right'].append(q_values[i])
+
+        # Convert the dictionary to a DataFrame
+        q_df = pd.DataFrame(data)
+        
+        # Split the 'State' column into separate columns
+        state_df = pd.DataFrame(q_df['State'].tolist(), columns=['Current Lane Rate', 'Left Lane Rate', 'Right Lane Rate', 'Risk Factor', 'Over Speed Limit'])
+
+        # Concatenate the split columns with the original DataFrame
+        q_df = pd.concat([state_df, q_df.drop(columns=['State'])], axis=1)
+        
+        return q_df
+    
+    def analyze_lane_speed_preference(self):
+
+        q_df = self.q_table_to_dataframe()
+        
+        high_risk_mismatches = 0
+        low_risk_mismatches = 0
+        high_risk_total = 0
+        low_risk_total = 0
+        risk_threshold=self.Env.high_risk_threshold * 5
+        results = []
+        
+        for _, row in q_df.iterrows():
+            current_lane_rate = row['Current Lane Rate']
+            left_lane_rate = row['Left Lane Rate']
+            right_lane_rate = row['Right Lane Rate']
+            risk_factor = row['Risk Factor']
+            over_speed_limit = row['Over Speed Limit']
+            
+            # Determine which adjacent lane is faster
+            if left_lane_rate > current_lane_rate:
+                preferred_action = 'Left'
+            elif right_lane_rate > current_lane_rate:
+                preferred_action = 'Right'
+            else:
+                preferred_action = 'Stay'
+            
+            # Check if the Q-value for the preferred action is the highest
+            highest_q_action = row[['Left', 'Stay', 'Right']].idxmax()
+            
+            # Determine if it's a high-risk or low-risk case
+            is_high_risk = risk_factor >= risk_threshold
+            
+            # Count total high-risk and low-risk cases
+            if is_high_risk:
+                high_risk_total += 1
+                if preferred_action != highest_q_action:
+                    high_risk_mismatches += 1  # Count mismatch for high-risk cases
+            else:
+                low_risk_total += 1
+                if preferred_action != highest_q_action:
+                    low_risk_mismatches += 1  # Count mismatch for low-risk cases
+            
+            results.append({
+                # 'State': row['Current Lane'],
+                'Current Lane Rate': current_lane_rate,
+                'Left Lane Rate': left_lane_rate,
+                'Right Lane Rate': right_lane_rate,
+                'Risk Factor': risk_factor,
+                'Risk Level': 'High' if is_high_risk else 'Low',
+                'Preferred Action (Fastest Lane)': preferred_action,
+                'Highest Q-value Action': highest_q_action,
+                'Highest Q-value': row[highest_q_action]
+            })
+            
+        # Calculate percentages of mismatches for high-risk and low-risk cases
+        high_risk_mismatch_percentage = (high_risk_mismatches / high_risk_total * 100) if high_risk_total > 0 else 0
+        low_risk_mismatch_percentage = (low_risk_mismatches / low_risk_total * 100) if low_risk_total > 0 else 0
+        
+        results_df = pd.DataFrame(results)
+        return results_df, high_risk_mismatch_percentage, low_risk_mismatch_percentage
+
+    # Check if the agent tends to stay when risk factor is high
+    def analyze_risk_factor_stay_preference(self):
+        
+        risk_threshold=self.Env.high_risk_threshold * 5
+        
+        q_df = self.q_table_to_dataframe()
+        
+        # Filter rows where risk factor is above the threshold
+        high_risk_df = q_df[q_df['Risk Factor'] >= risk_threshold]
+        
+        # Count cases where 'Stay' has the highest Q-value in high-risk states
+        high_risk_df['Highest Q-value Action'] = high_risk_df[['Left', 'Stay', 'Right']].idxmax(axis=1)
+        stay_preference_count = (high_risk_df['Highest Q-value Action'] == 'Stay').sum()
+        total_high_risk_cases = high_risk_df.shape[0]
+        stay_preference_percentage = (stay_preference_count / total_high_risk_cases) * 100 if total_high_risk_cases > 0 else 0
+        
+        return {
+            'Total High Risk Cases': total_high_risk_cases,
+            'Stay Preference in High Risk': stay_preference_count,
+            'Stay Preference Percentage': stay_preference_percentage
+        }
+    
+    def evaluate(self, num_episodes=100):
         """
         Evaluate the Temporal Difference agent in inference mode.
 
@@ -269,41 +438,58 @@ class TemporalDifference:
         - avg_steps: Average steps per episode across all episodes.
         - checkpoint_rewards: Rewards recorded at specified checkpoint intervals.
         """
-        all_rewards = []  # List to store total rewards per episode
-        all_steps = []    # List to store the number of steps per episode
-        checkpoint_rewards = []  # List to store rewards at each checkpoint
+        self._initialize_statistics()
+        lane_change_count = 0
+        early_termination_count = 0
 
         for episode in tqdm(range(num_episodes)):
             state, _ = self.Env.reset()
             state = self.transform_state(state, self.Env.initial_distance)
-            cumulative_reward = 0
-            steps = 0
-            terminated = False
-            truncated = False
+            steps, episode_reward  = 0, 0
+            terminated, truncated = False, False
+            high_risk_exceedances = 0
 
             while not terminated and not truncated:
                 # Select action based on the trained policy without updating Q-values
                 action = self.get_best_action(state)  # Use the trained policy
+                if action != 1:
+                    lane_change_count += 1
                 
                 # Take action in the environment
                 next_state, reward, terminated, truncated, _ = self.Env.step(action)
                 next_state = self.transform_state(next_state, self.Env.initial_distance)
                 
-                cumulative_reward += reward
+                # Check clearance rates
+                for rate in self.Env.clearance_rates:
+                    self._update_clearance_statistics(rate)
+                
+                # Check risk factor exceedance
+                if self.Env.risk_factor > self.Env.high_risk_threshold:
+                    high_risk_exceedances += 1
+                
+                episode_reward += reward
                 state = next_state
                 steps += 1
+            
+             # Log episode-specific statistics
+            self.episode_statistics["episode_rewards"].append(episode_reward)
+            self.episode_statistics["episode_steps"].append(steps)
+            self.episode_statistics["risk_factor_exceedance_percentage"].append(high_risk_exceedances / steps * 100)
+            early_termination_count += int(truncated)
 
-            # Store results after each episode
-            all_rewards.append(cumulative_reward)
-            all_steps.append(steps)
+            # Lane change percentage calculation
+            if episode % 10 == 0:
+                self.episode_statistics["lane_change_percentage"].append(lane_change_count / max(1, steps) * 100)
+                
+        # Calculate final statistics after all episodes
+        self.episode_statistics["early_termination_percentage"].append(early_termination_count / num_episodes * 100)
+        
+        # Save statistics to JSON
+        self._save_statistics_to_json()
 
-            # Store rewards at checkpoint intervals
-            if (episode + 1) % checkpoint_interval == 0:
-                checkpoint_rewards.append(np.mean(all_rewards[-checkpoint_interval:]))
+        return self.episode_statistics["episode_rewards"], self.episode_statistics["episode_steps"]
 
-        return all_rewards, all_steps, checkpoint_rewards
-
-    def plot_evaluation_metrics(self, rewards, steps, checkpoint_rewards, window_size=10):
+    def plot_evaluation_metrics(self, rewards, steps, window_size=10):
         """
         Plot evaluation metrics (rewards and steps per episode) with a rolling mean.
 
@@ -345,15 +531,6 @@ class TemporalDifference:
         plt.ylabel('Number of Steps')
         plt.legend()
         plt.show()
-
-        # # Plot checkpoint rewards if available
-        # if checkpoint_rewards:
-        #     plt.figure(figsize=(14, 6))
-        #     plt.plot(np.arange(1, len(checkpoint_rewards) + 1) * checkpoint_interval, checkpoint_rewards, 'o-', color='purple', alpha=0.8)
-        #     plt.title(f'Checkpoint Rewards (every {checkpoint_interval} episodes)')
-        #     plt.xlabel('Episode')
-        #     plt.ylabel('Average Reward')
-        #     plt.show()
         
     def hyperparameter_tuning(self, hyperparameter_space, episodes=10000, on_policy=True, n_trials=50):
         """
@@ -395,7 +572,7 @@ class TemporalDifference:
         best_average_reward = study.best_value  # negate since we minimized -reward
         # Instantiate the best agent with the optimized hyperparameters
         best_agent = TemporalDifference(
-            self.env,
+            self.Env,
             oiv = 0.1, 
             alpha=best_params['alpha'], 
             gamma=best_params['gamma'], 
