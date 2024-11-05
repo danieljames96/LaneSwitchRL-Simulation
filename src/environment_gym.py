@@ -157,7 +157,7 @@ class TrafficEnvironment(gym.Env):
 
         # Compute the distance covered in the current lane
         clearance_rate = self.clearance_rates[self.current_lane - 1]
-        distance_covered = clearance_rate
+        distance_covered = min(clearance_rate, self.distance)
         self.distance -= distance_covered
         self.distance = round(self.distance, self.rounding_precision)
 
