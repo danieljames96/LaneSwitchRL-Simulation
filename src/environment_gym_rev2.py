@@ -21,7 +21,7 @@ class TrafficEnvironment(gym.Env):
         self.clearance_rate_min = 0
         self.max_time_steps = 10000
         
-        # Define action space (-1: left, 0: stay, 1: right)
+        # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
         
         # Define observation space: (distance, current lane, clearance rates)
@@ -132,7 +132,7 @@ class TrafficEnvironment(gym.Env):
         """
         Takes an action and returns the next state, reward, terminated, truncated, and info.
         Args:
-        - action (int): The action taken by the agent (-1 for left, 0 for stay, 1 for right).
+        - action (int): The action taken by the agent (0 for left, 1 for stay, 2 for right).
         Returns:
         - next_state (np.array): The next observation after taking the action.
         - reward (float): The reward received after taking the action.
