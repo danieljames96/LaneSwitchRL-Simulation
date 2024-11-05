@@ -33,7 +33,7 @@ class TrafficEnvironment(gym.Env):
         
         self.reset()
 
-    def reset(self, seed=None):
+    def reset(self, seed=2024):
         """
         Resets the environment to the initial state.
         Returns:
