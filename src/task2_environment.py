@@ -42,12 +42,12 @@ class CustomTrafficEnvironment(gym.Env):
         self.clearance_rate_min = 5
         self.clearance_rate_max = 30
         self.clearance_rate_change_factor = 0.2
-        
+
         self.rain_probability = 0.2
         self.rain_edge_lane_effect = -0.3
         self.rain_center_lane_effect = -0.2
         self.is_raining = False
-        
+
         self.accident_threshold = 0.9
         self.accident_probability = 0.001
         self.speed_limit = 25
@@ -57,16 +57,16 @@ class CustomTrafficEnvironment(gym.Env):
         self.high_risk_penalty = -4 # High-risk penalty
         self.lane_change_risk = 0.05
         self.high_speed_risk = 0.1
-        
+
         self.lane_change_penalty = -0.5
         self.time_penalty = -1
         self.wrong_lane_penalty = -5
         self.low_clearance_penalty_factor = -0.5
-        
+
         self.lane_change_probability = 0.6
         self.slowdown_probability = 0.05
         self.speed_up_probability = 0.05
-        
+
         self.slowdown_factor = (0.2, 0.5)
         self.speed_up_factor = (0.2, 0.4)
         self.distance_reward_factor = 0.2
@@ -264,7 +264,7 @@ class CustomTrafficEnvironment(gym.Env):
         
         accident_chance = self.accident_probability * (self.risk_factor / self.accident_threshold)
         
-        self.risk_factor = round(self.risk_factor, 2)
+        self.risk_factor = round(self.risk_factor, 3)
         
         if random.random() < accident_chance:
             self.logger.debug("Accident occurred.")
