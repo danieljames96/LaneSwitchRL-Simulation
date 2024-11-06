@@ -226,17 +226,15 @@ class TemporalDifference:
 
         return self.total_reward_list, self.total_steps_list
     
-    def plot_training_metrics(self, window_size=50):
+    def plot_metrics(self, rewards, steps, window_size=50):
         """
-        Plot training metrics (rewards and steps) with rolling mean (window_size)
+        Plot training and eval metrics (rewards and steps) with rolling mean (window_size)
         
         Args:
         rewards: list of episode rewards
         steps: list of episode steps
         window_size: size of rolling window for smoothing
         """
-        rewards = self.total_reward_list
-        steps = self.total_steps_list
         
         # Create figure with two subplots side by side
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
@@ -316,7 +314,7 @@ class TemporalDifference:
                 formatted_state.append(round(value, 1))  # Round to one decimal place
         return formatted_state
     
-    def evaluate(self, num_episodes=100, output_file=f'./logs/task2/test_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json'):
+    def evaluate(self, num_episodes=100, output_file=f'./logs/task2/test_log_tdlambda_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json'):
         """
         Evaluate the Temporal Difference agent in inference mode.
 
@@ -392,51 +390,8 @@ class TemporalDifference:
         print(f"Early terminations: {early_termination_count}")
 
         return rewards, timesteps, output_file
-
-    def plot_evaluation_metrics(self, rewards, steps, window_size=10):
-        """
-        Plot evaluation metrics (rewards and steps per episode) with a rolling mean.
-
-        Args:
-        - rewards: List of cumulative rewards per episode.
-        - steps: List of steps taken per episode.
-        - checkpoint_rewards: List of average rewards at checkpoint intervals.
-        - window_size: Window size for rolling mean smoothing.
-        """
-        # Convert rewards and steps to DataFrames for easier plotting
-        df_rewards = pd.DataFrame({
-            'Episode': range(len(rewards)),
-            'Reward': rewards,
-            'Rolling Mean': pd.Series(rewards).rolling(window=window_size).mean()
-        })
-
-        df_steps = pd.DataFrame({
-            'Episode': range(len(steps)),
-            'Steps': steps,
-            'Rolling Mean': pd.Series(steps).rolling(window=window_size).mean()
-        })
-
-        # Plot rewards per episode
-        plt.figure(figsize=(14, 6))
-        sns.lineplot(data=df_rewards, x='Episode', y='Reward', label='Total Reward', color='blue', alpha=0.6)
-        sns.lineplot(data=df_rewards, x='Episode', y='Rolling Mean', label=f'Rolling Mean (window={window_size})', color='red')
-        plt.title('Total Rewards per Episode')
-        plt.xlabel('Episode')
-        plt.ylabel('Cumulative Reward')
-        plt.legend()
-        plt.show()
-
-        # Plot steps per episode
-        plt.figure(figsize=(14, 6))
-        sns.lineplot(data=df_steps, x='Episode', y='Steps', label='Steps per Episode', color='blue', alpha=0.6)
-        sns.lineplot(data=df_steps, x='Episode', y='Rolling Mean', label=f'Rolling Mean (window={window_size})', color='red')
-        plt.title('Steps per Episode')
-        plt.xlabel('Episode')
-        plt.ylabel('Number of Steps')
-        plt.legend()
-        plt.show()
         
-    def hyperparameter_tuning(self, hyperparameter_space, episodes=10000, on_policy=True, n_trials=50):
+    def hyperparameter_tuning(self, hyperparameter_space, lambd=0, episodes=10000, on_policy=True, n_trials=50):
         """
         Perform hyperparameter tuning using Optuna.
 
@@ -456,7 +411,7 @@ class TemporalDifference:
             self.epsilon = 1.0
             # self.epsilon_decay = trial.suggest_float('epsilon_decay', *hyperparameter_space['epsilon_decay'])
             self.epsilon_min = trial.suggest_float('epsilon_min', *hyperparameter_space['epsilon_min'])
-            self.lambd = trial.suggest_float('lambd', *hyperparameter_space['lambd'])
+            # self.lambd = trial.suggest_float('lambd', *hyperparameter_space['lambd'])
 
             # Train the agent with the current hyperparameters
             rewards, _ = self.train(num_episodes=episodes, on_policy = on_policy)
@@ -484,7 +439,7 @@ class TemporalDifference:
             # epsilon_decay=best_params['epsilon_decay'], 
             epsilon_decay = 0.9999,
             epsilon_min=best_params['epsilon_min'], 
-            lambd=best_params['lambd']
+            lambd=lambd #best_params['lambd']
         )
 
         print("\nBest Hyperparameters Found:")
@@ -492,6 +447,72 @@ class TemporalDifference:
         print(f"Best Average Reward: {best_average_reward:.2f}")
 
         return best_agent, best_params
+    
+    def analyze_model_actions(self):
+        """
+        Analyze action distribution from either a saved model file or a TD agent
+        
+        Args:
+        - model_path (str): Path to saved model JSON file (optional)
+        - td_agent (TemporalDifference): Trained TD agent (optional)
+        """
+        # Get Q-values either from file or agent
+        q_values = dict(self.Q)
+
+        # Analyze action distribution
+        left = 0
+        stay = 0
+        right = 0
+        
+        for state, values in q_values.items():
+            action = np.argmax(values)
+            if action == 0:
+                left += 1
+            elif action == 1:
+                stay += 1
+            else:
+                right += 1
+        
+        # Calculate percentages
+        total = left + stay + right
+        left_pct = left/total * 100
+        stay_pct = stay/total * 100
+        right_pct = right/total * 100
+        
+        print(f"Action Distribution:")
+        print(f"Left:  {left:4d} ({left_pct:.1f}%)")
+        print(f"Stay:  {stay:4d} ({stay_pct:.1f}%)")
+        print(f"Right: {right:4d} ({right_pct:.1f}%)")
+        
+        # Plot distribution
+        self.plot_action_distribution(left, stay, right)
+        
+        return left, stay, right, left_pct, stay_pct, right_pct
+
+    def plot_action_distribution(self, left, stay, right):
+        """
+        Plot the distribution of actions as a bar chart
+        """
+        actions = ['Left', 'Stay', 'Right']
+        counts = [left, stay, right]
+        
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(actions, counts)
+        plt.title('Distribution of Preferred Actions Across States', pad=20)
+        plt.xlabel('Action')
+        plt.ylabel('Number of States')
+        
+        # Add percentage labels on top of each bar
+        total = sum(counts)
+        for bar in bars:
+            height = bar.get_height()
+            percentage = height/total * 100
+            plt.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}\n({percentage:.1f}%)',
+                    ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.show()
 
 class RuleBasedAgent:
     def __init__(self, env, initial_distance=4000, num_lanes=5, strategy='fastest_adjacent'):
@@ -556,76 +577,132 @@ class RuleBasedAgent:
         else:
             return 1  # Stay in the current lane if neither adjacent lane is faster
     
-    def evaluate_agent(self, num_episodes=10, starting_lane = 1):
+    def format_state(self, state):
+        """
+        Formats the state array so that specific indices are integers, 
+        and others are rounded to one decimal place.
+        """
+        formatted_state = []
+        for i, value in enumerate(state):
+            if i in [1, 9, 17]:  # Indices to be converted to integers
+                formatted_state.append(int(value))
+            elif i in [2, 10, 18]:
+                continue  # Skip these indices
+            else:
+                formatted_state.append(round(value, 1))  # Round to one decimal place
+        return formatted_state
+    
+    def evaluate_agent(self, num_episodes=10, starting_lane = 1, output_file=f'./logs/task2/rule_test_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json'):
         all_episode_rewards = []
         all_timesteps = []
         truncated_count = 0
 
-        for episode in tqdm(range(num_episodes)):
-            episode_rewards = []
-            
-            options = {
-                'starting_lane': starting_lane
-            }
-            state, _ = self.Env.reset(options=options)
-            terminated = False
-            truncated = False
-            cumulative_reward = 0
-            timestep = 0
-
-            while not terminated and not truncated:
-                action = self.choose_action(state)
-                next_state, reward, terminated, truncated, _ = self.Env.step(action)
-                cumulative_reward += reward
-                state = next_state
-                timestep += 1
+        with open(output_file, 'w') as f:
+            for episode in tqdm(range(num_episodes)):
+                episode_rewards = []
                 
-                # Store rewards at each timestep for this episode
-                episode_rewards.append(cumulative_reward)
+                options = {
+                    'starting_lane': starting_lane
+                }
+                state, _ = self.Env.reset(options=options)
+                terminated = False
+                truncated = False
+                cumulative_reward = 0
+                episode_steps = 0
+                
+                episode_details = {
+                        "Episode": episode + 1,
+                        "Initial State": self.format_state(state.tolist() if hasattr(state, 'tolist') else state),
+                        "Timesteps": []
+                    }
 
-                if truncated:
-                    truncated_count += 1
-                    break
+                while not terminated and not truncated:
+                    action = self.choose_action(state)
+                    next_state, reward, terminated, truncated, _ = self.Env.step(action)
+                    cumulative_reward += reward
+                    state = next_state
+                    episode_steps += 1
+                    
+                    action = int(action)
+                    mapped_action = action - 1
+                    
+                    # Log details of each timestep including reward
+                    timestep_details = {
+                        "Timestep": episode_steps,
+                        "State": self.format_state(next_state.tolist() if hasattr(next_state, 'tolist') else next_state),
+                        "Action": mapped_action,
+                        "Reward": reward
+                    }
+                    
+                    episode_details["Timesteps"].append(timestep_details)
+                    
+                    # Store rewards at each timestep for this episode
+                    episode_rewards.append(cumulative_reward)
 
-            # Append results for each episode
-            all_episode_rewards.append(cumulative_reward)
-            if not truncated:
-                all_timesteps.append(timestep)
+                    if truncated:
+                        truncated_count += 1
+                        break
+                    
+                # Add total reward and timestep count to episode details
+                episode_details["Total Reward"] = episode_rewards
+                episode_details["Total Timesteps"] = episode_steps
+
+                # Write the full episode details as a JSON object to the file
+                f.write(json.dumps(episode_details) + "\n")
+
+                # Append results for each episode
+                all_episode_rewards.append(cumulative_reward)
+                if not truncated:
+                    all_timesteps.append(episode_steps)
 
         print(f"Truncated episodes: {truncated_count}")
         
-        return all_episode_rewards, all_timesteps
+        return all_episode_rewards, all_timesteps, output_file
     
-    def plot_eval_metrics(self, all_episode_rewards, all_timesteps, window_size=10):
+    def plot_metrics(self, rewards, steps, window_size=50):
         """
-        Plot cumulative rewards and timesteps to termination with a rolling mean.
-
+        Plot training and eval metrics (rewards and steps) with rolling mean (window_size)
+        
         Args:
-        - all_episode_rewards (list of lists): Cumulative rewards for each episode.
-        - all_timesteps (list): Number of timesteps to termination for each episode.
-        - window_size (int): Window size for rolling mean.
+        rewards: list of episode rewards
+        steps: list of episode steps
+        window_size: size of rolling window for smoothing
         """
-        # Compute rolling mean for cumulative rewards across episodes
-        rolling_rewards = pd.DataFrame(all_episode_rewards).mean(axis=0).rolling(window_size).mean()
-        # Compute rolling mean for timesteps to termination
-        rolling_timesteps = pd.Series(all_timesteps).rolling(window_size).mean()
-
-        # Plot the cumulative rewards with rolling mean
-        plt.figure(figsize=(12, 5))
-        plt.subplot(1, 2, 1)
-        plt.plot(rolling_rewards, label='Cumulative Reward (Rolling Mean)')
-        plt.xlabel('Timesteps')
-        plt.ylabel('Cumulative Reward')
-        plt.title(f'Cumulative Rewards Over Episodes (Rolling Mean - Window Size: {window_size})')
-        plt.legend()
-
-        # Plot the timesteps to termination with rolling mean
-        plt.subplot(1, 2, 2)
-        plt.plot(rolling_timesteps, label='Timesteps to Termination (Rolling Mean)')
-        plt.xlabel('Episode')
-        plt.ylabel('Timesteps')
-        plt.title(f'Timesteps to Termination (Rolling Mean - Window Size: {window_size})')
-        plt.legend()
-
+        
+        # Create figure with two subplots side by side
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Create dataframes for easier plotting
+        df_rewards = pd.DataFrame({
+            'Episode': range(len(rewards)),
+            'Reward': rewards,
+            'Rolling Mean': pd.Series(rewards).rolling(window=window_size).mean()
+        })
+        
+        df_steps = pd.DataFrame({
+            'Episode': range(len(steps)),
+            'Steps': steps,
+            'Rolling Mean': pd.Series(steps).rolling(window=window_size).mean()
+        })
+        
+        # Plot rewards
+        sns.scatterplot(data=df_rewards, x='Episode', y='Reward', 
+                    alpha=0.3, color='blue', ax=ax1, label='Reward')
+        sns.lineplot(data=df_rewards, x='Episode', y='Rolling Mean',
+                    color='red', ax=ax1, linewidth=2, label=f'Rolling Mean (window={window_size})')
+        ax1.set_title('Rewards per Episode')
+        ax1.set_xlabel('Episode')
+        ax1.set_ylabel('Total Reward')
+        
+        # Plot steps
+        sns.scatterplot(data=df_steps, x='Episode', y='Steps',
+                    alpha=0.3, color='blue', ax=ax2, label='Steps')
+        sns.lineplot(data=df_steps, x='Episode', y='Rolling Mean',
+                    color='red', ax=ax2, linewidth=2, label=f'Rolling Mean (window={window_size})')
+        ax2.set_title('Steps per Episode')
+        ax2.set_xlabel('Episode')
+        ax2.set_ylabel('Number of Steps')
+        
+        # Adjust layout and display
         plt.tight_layout()
-        plt.show()
+        return fig
