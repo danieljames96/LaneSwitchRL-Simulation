@@ -40,26 +40,26 @@ class CustomTrafficEnvironment(gym.Env):
         self.risk_factor = 0
         
         self.clearance_rate_min = 5
-        self.clearance_rate_max = 25
+        self.clearance_rate_max = 30
         
         self.rain_probability = 0.2
         self.rain_edge_lane_effect = -0.3
         self.rain_center_lane_effect = -0.2
         self.is_raining = False
         
-        self.accident_threshold = 0.8
-        self.accident_probability = 0.005
-        self.speed_limit = 22
+        self.accident_threshold = 0.9
+        self.accident_probability = 0.001
+        self.speed_limit = 25
         self.safe_speed = 10
-        self.accident_penalty = -600
+        self.accident_penalty = -400
         self.high_risk_threshold = 0.8 * self.accident_threshold  # 80% of the accident threshold
-        self.high_risk_penalty = -50 # High-risk penalty
+        self.high_risk_penalty = -40 # High-risk penalty
         self.lane_change_risk = 0.05
         self.high_speed_risk = 0.1
         
         self.lane_change_penalty = -5
         self.time_penalty = -10
-        self.wrong_lane_penalty = -20
+        self.wrong_lane_penalty = -50
         
         self.distance_reward_factor = 2
         

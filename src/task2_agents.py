@@ -71,7 +71,7 @@ class TemporalDifference:
         else:
             return self.get_best_action(state)
     
-    def transform_state(self, state, initial_distance, num_discrete_levels=5):
+    def transform_state(self, state, initial_distance, num_discrete_levels=10):
         """
         Normalize the distance to a percentage of the initial distance and discretize clearance rates.
         
@@ -88,20 +88,34 @@ class TemporalDifference:
         
         # Get current lane and clearance rates for adjacent lanes
         current_lane = int(state[17])
-        risk_factor = int(state[18] * 5)
+        risk_factor = round(state[18] * 5)
         clearance_rates = state[19:]
         
+        # Weighted average for lanes to the left and right of the current lane
+        def weighted_average(rates, start, end, direction):
+            weights = [1 / (abs(i - current_lane) + 1) for i in range(start, end, direction)]
+            total_weight = sum(weights)
+            weighted_sum = sum(rate * weight for rate, weight in zip(rates[start:end:direction], weights))
+            return weighted_sum / total_weight
+        
         # Discretize clearance rates to specified levels (e.g., 1 to 10)
-        min_rate, max_rate = 5, max(20, max(clearance_rates))
-        left_lane_rate = (clearance_rates[current_lane - 2] if current_lane > 1 else None)
-        right_lane_rate = (clearance_rates[current_lane] if current_lane < len(clearance_rates) else None)
+        min_rate, max_rate = self.Env.clearance_rate_min, self.Env.clearance_rate_max
+        
+        # Calculate weighted averages for left and right lanes
+        left_lane_rate = (
+            weighted_average(clearance_rates, 0, current_lane - 1, 1)
+            if current_lane > 1 else 0
+        )
+        right_lane_rate = (
+            weighted_average(clearance_rates, current_lane, len(clearance_rates), 1)
+            if current_lane < len(clearance_rates) else 0
+        )
         current_lane_rate = clearance_rates[current_lane - 1]
-        over_speed_limit = int(current_lane_rate > self.Env.speed_limit)
         
         # Discretize clearance rates within the specified range
         def discretize_rate(rate):
-            if rate is None:
-                return 0  # Assign 0 if no lane exists (e.g., left lane when in the leftmost position)
+            if rate == 0:  # No lane in that direction
+                return 0
             return int((rate - min_rate) / (max_rate - min_rate) * (num_discrete_levels - 1)) + 1
 
         left_lane_rate = discretize_rate(left_lane_rate)
@@ -109,7 +123,7 @@ class TemporalDifference:
         current_lane_rate = discretize_rate(current_lane_rate)
 
         # Return transformed state with current lane, discrete clearance rates and discrete risk factor
-        return (current_lane_rate, left_lane_rate, right_lane_rate, risk_factor, over_speed_limit) # distance_percentage, current_lane
+        return (current_lane_rate, left_lane_rate, right_lane_rate, risk_factor) # distance_percentage, current_lane
     
     def train(self, num_episodes = 1000 , on_policy = True, save_model = False):
 
@@ -280,7 +294,7 @@ class TemporalDifference:
         q_df = pd.DataFrame(data)
         
         # Split the 'State' column into separate columns
-        state_df = pd.DataFrame(q_df['State'].tolist(), columns=['Current Lane Rate', 'Left Lane Rate', 'Right Lane Rate', 'Risk Factor', 'Over Speed Limit'])
+        state_df = pd.DataFrame(q_df['State'].tolist(), columns=['Current Lane Rate', 'Left Lane Rate', 'Right Lane Rate', 'Risk Factor'])
 
         # Concatenate the split columns with the original DataFrame
         q_df = pd.concat([state_df, q_df.drop(columns=['State'])], axis=1)
@@ -363,7 +377,8 @@ class TemporalDifference:
                     
                 episode_rewards = round(episode_rewards)
                 rewards.append(episode_rewards)
-                timesteps.append(episode_steps)
+                if not truncated:
+                    timesteps.append(episode_steps)
 
                 # Add total reward and timestep count to episode details
                 episode_details["Total Reward"] = episode_rewards
@@ -439,12 +454,12 @@ class TemporalDifference:
             self.alpha = trial.suggest_float('alpha', *hyperparameter_space['alpha'], log=True)
             self.gamma = trial.suggest_float('gamma', *hyperparameter_space['gamma'])
             self.epsilon = 1.0
-            self.epsilon_decay = trial.suggest_float('epsilon_decay', *hyperparameter_space['epsilon_decay'])
+            # self.epsilon_decay = trial.suggest_float('epsilon_decay', *hyperparameter_space['epsilon_decay'])
             self.epsilon_min = trial.suggest_float('epsilon_min', *hyperparameter_space['epsilon_min'])
             self.lambd = trial.suggest_float('lambd', *hyperparameter_space['lambd'])
 
             # Train the agent with the current hyperparameters
-            rewards = self.train(num_episodes=episodes, on_policy = on_policy)
+            rewards, _ = self.train(num_episodes=episodes, on_policy = on_policy)
 
             # Calculate the average reward over the last 1000 episodes
             average_reward = np.mean(rewards[-500:])
@@ -466,7 +481,8 @@ class TemporalDifference:
             alpha=best_params['alpha'], 
             gamma=best_params['gamma'], 
             epsilon=1.0, 
-            epsilon_decay=best_params['epsilon_decay'], 
+            # epsilon_decay=best_params['epsilon_decay'], 
+            epsilon_decay = 0.9999,
             epsilon_min=best_params['epsilon_min'], 
             lambd=best_params['lambd']
         )
