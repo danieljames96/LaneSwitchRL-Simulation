@@ -41,6 +41,7 @@ class CustomTrafficEnvironment(gym.Env):
         
         self.clearance_rate_min = 5
         self.clearance_rate_max = 30
+        self.clearance_rate_change_factor = 0.2
         
         self.rain_probability = 0.2
         self.rain_edge_lane_effect = -0.3
@@ -51,17 +52,24 @@ class CustomTrafficEnvironment(gym.Env):
         self.accident_probability = 0.001
         self.speed_limit = 25
         self.safe_speed = 10
-        self.accident_penalty = -400
+        self.accident_penalty = -40
         self.high_risk_threshold = 0.8 * self.accident_threshold  # 80% of the accident threshold
-        self.high_risk_penalty = -40 # High-risk penalty
+        self.high_risk_penalty = -4 # High-risk penalty
         self.lane_change_risk = 0.05
         self.high_speed_risk = 0.1
         
-        self.lane_change_penalty = -5
-        self.time_penalty = -10
-        self.wrong_lane_penalty = -50
+        self.lane_change_penalty = -0.5
+        self.time_penalty = -1
+        self.wrong_lane_penalty = -5
+        self.low_clearance_penalty_factor = -0.5
         
-        self.distance_reward_factor = 2
+        self.lane_change_probability = 0.6
+        self.slowdown_probability = 0.05
+        self.speed_up_probability = 0.05
+        
+        self.slowdown_factor = (0.2, 0.5)
+        self.speed_up_factor = (0.2, 0.4)
+        self.distance_reward_factor = 0.2
         
         # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
@@ -174,9 +182,9 @@ class CustomTrafficEnvironment(gym.Env):
             
             # Penalize for lane change if the clearance rate is lower than the current lane
             if new_clearance_rate < current_clearance_rate and current_clearance_rate < self.speed_limit:
-                penalty += (current_clearance_rate - new_clearance_rate) * -5
+                penalty += (current_clearance_rate - new_clearance_rate) * self.low_clearance_penalty_factor
             
-            if random.random() < 0.5:
+            if random.random() < self.lane_change_probability:
                 self.current_lane = new_lane
                 self.logger.debug(f"Lane change succeeded to lane {self.current_lane}")
             else:
@@ -215,19 +223,19 @@ class CustomTrafficEnvironment(gym.Env):
             # Random Event: 5% chance of slowdown (20%-50%) and 5% chance of speedup (20%-40%)
             random_event = random.random()
             # 5% chance of slowdown
-            if random_event < 0.05:
-                updated_rates[i] -= self.clearance_rates[i] * random.uniform(0.2, 0.5)
+            if random_event < self.slowdown_probability:
+                updated_rates[i] -= self.clearance_rates[i] * random.uniform(*self.slowdown_factor)
                 self.logger.debug(f"Clearance rate slowed in lane {i+1}")
             # 5% chance of speedup
-            elif random_event >= 0.05 and random_event < 0.1:
-                updated_rates[i] += self.clearance_rates[i] * random.uniform(0.2, 0.4)
+            elif random_event >= self.slowdown_probability and random_event < self.slowdown_probability + self.speed_up_probability:
+                updated_rates[i] += self.clearance_rates[i] * random.uniform(*self.speed_up_factor) 
                 self.logger.debug(f"Clearance rate increased in lane {i+1}")
 
             # Update based on adjacent lanes, with sgn function and uncertainty
             if i > 0:
-                updated_rates[i] += 0.2 * np.sign(self.clearance_rates[i - 1] - self.clearance_rates[i])
+                updated_rates[i] += self.clearance_rate_change_factor * np.sign(self.clearance_rates[i - 1] - self.clearance_rates[i])
             if i < self.lanes - 1:
-                updated_rates[i] += 0.2 * np.sign(self.clearance_rates[i + 1] - self.clearance_rates[i])
+                updated_rates[i] += self.clearance_rate_change_factor * np.sign(self.clearance_rates[i + 1] - self.clearance_rates[i])
 
             updated_rates[i] += uncertainty
             updated_rates[i] = round(updated_rates[i], self.rounding_precision)
@@ -264,8 +272,8 @@ class CustomTrafficEnvironment(gym.Env):
             penalty += self.accident_penalty
         else:
             truncated=False
-            if self.risk_factor > self.accident_threshold:
-                penalty += self.risk_factor * -10
+            if self.risk_factor > self.high_risk_threshold:
+                penalty += self.high_risk_penalty
             
         return truncated, penalty
 
@@ -302,11 +310,10 @@ class CustomTrafficEnvironment(gym.Env):
             left_clearance_rate = self.clearance_rates[self.current_lane - 2] if self.current_lane > 1 else 0
             right_clearance_rate = self.clearance_rates[self.current_lane] if self.current_lane < self.lanes else 0
             
-            # Penalize for lane change if the clearance rate is lower than the current lane
+            # Penalize for staying in lane if the clearance rate is lower than adjacent lanes
             if ((current_clearance_rate < left_clearance_rate and left_clearance_rate < self.speed_limit) \
                 or (current_clearance_rate < right_clearance_rate and right_clearance_rate < self.speed_limit)):
-                reward += (current_clearance_rate - max(left_clearance_rate, right_clearance_rate)) * -5
-        # No action needed for staying in the current lane
+                reward += (current_clearance_rate - max(left_clearance_rate, right_clearance_rate)) * self.low_clearance_penalty_factor
 
         # Update lane clearance rates based on neighboring lanes
         self._update_clearance_rates()
@@ -320,9 +327,6 @@ class CustomTrafficEnvironment(gym.Env):
         truncated, accident_penalty = self._accident_check(mapped_action)
         
         reward += accident_penalty
-
-        if self.risk_factor >= self.high_risk_threshold and not truncated:
-            reward += self.high_risk_penalty  # Penalize for high risk
         
         # Reward for distance covered
         reward += distance_covered * self.distance_reward_factor
