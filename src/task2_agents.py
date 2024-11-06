@@ -313,8 +313,9 @@ class TemporalDifference:
             else:
                 formatted_state.append(round(value, 1))  # Round to one decimal place
         return formatted_state
-    
-    def evaluate(self, num_episodes=100, output_file=f'./logs/task2/test_log_tdlambda_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json'):
+        
+    def evaluate(self, num_episodes=100, output_file=f"./logs/task2/test_log_tdlambda_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"):
+
         """
         Evaluate the Temporal Difference agent in inference mode.
 
@@ -592,7 +593,7 @@ class RuleBasedAgent:
                 formatted_state.append(round(value, 1))  # Round to one decimal place
         return formatted_state
     
-    def evaluate_agent(self, num_episodes=10, starting_lane = 1, output_file=f'./logs/task2/rule_test_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json'):
+    def evaluate_agent(self, num_episodes=10, starting_lane = 1, output_file=f"./logs/task2/rule_test_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"):
         all_episode_rewards = []
         all_timesteps = []
         truncated_count = 0
