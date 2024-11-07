@@ -6,11 +6,12 @@ from gymnasium import spaces
 class TrafficEnvironment(gym.Env):
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000):
+    def __init__(self, lanes=5, initial_distance=4000, reward_shaping_flag=False):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
         - initial_distance (int): The distance from destination.
+        - reward_shaping_flag (bool): Flag to enable or disable reward shaping.
         """
         super(TrafficEnvironment, self).__init__()
         
@@ -20,6 +21,8 @@ class TrafficEnvironment(gym.Env):
         self.rounding_precision = 1
         self.clearance_rate_min = 0
         self.max_time_steps = 10000
+
+        self.reward_shaping_flag = reward_shaping_flag
         
         # Define action space (0: left, 1: stay, 2: right)
         self.action_space = spaces.Discrete(3)
@@ -128,6 +131,27 @@ class TrafficEnvironment(gym.Env):
 
         self.clearance_rates = updated_rates
     
+    def _reward_shaping(self, previous_lane, action, previous_clearance_rate, new_clearance_rate):
+        """
+        Calculates a reward based on the new clearance rate after a lane change.
+        Args:
+        - previous_clearance_rate (float): The clearance rate of the previous lane.
+        - new_clearance_rate (float): The clearance rate of the new lane.
+        Returns:
+        - reward (float): The calculated reward.
+        """
+        reward = 0
+        if previous_lane == 1 and action == 0:
+            reward -= 10
+        
+        if previous_lane == 5 and action == 2:
+            reward -= 10
+
+        if previous_lane != self.current_lane:
+            if new_clearance_rate - previous_clearance_rate >= 1:
+                reward += 150 * new_clearance_rate
+        return reward
+    
     def step(self, action):
         """
         Takes an action and returns the next state, reward, terminated, truncated, and info.
@@ -146,6 +170,10 @@ class TrafficEnvironment(gym.Env):
         reward = 0
         terminated = False
         truncated = False
+
+        # Store the clearance rate and lane before taking action
+        previous_clearance_rate = self.clearance_rates[self.current_lane - 1]
+        previous_lane = self.current_lane
 
         # Handle lane change
         if mapped_action != 0:
@@ -177,10 +205,15 @@ class TrafficEnvironment(gym.Env):
         self.time_step += 1
         if self.time_step >= self.max_time_steps:
             truncated = True
-        
+
+        # If choose lane change and reward shaping is enabled, apply additional reward if criteria met
+        reward_shaping = self._reward_shaping(previous_lane, action, previous_clearance_rate, clearance_rate)
+        reward += reward_shaping
+
         # Return the next observation using _get_obs()
         next_state = self._get_obs()
-        info = {}
+        info = {"reward_shaping": reward_shaping}  
+
         return next_state, reward, terminated, truncated, info
     
     def render(self, mode='human'):
