@@ -180,10 +180,6 @@ class CustomTrafficEnvironment(gym.Env):
             
             current_clearance_rate = self.clearance_rates[self.current_lane - 1]
             new_clearance_rate = self.clearance_rates[self.current_lane - 1 + action]
-            
-            # Penalize for lane change if the clearance rate is lower than the current lane
-            # if new_clearance_rate < current_clearance_rate and current_clearance_rate < self.speed_limit:
-            #     penalty += (current_clearance_rate - new_clearance_rate) * self.low_clearance_penalty_factor
                 
             penalty += (new_clearance_rate - current_clearance_rate) * self.low_clearance_penalty_factor
             
@@ -254,17 +250,19 @@ class CustomTrafficEnvironment(gym.Env):
         # Check for accidents based on risk factor and accident probability
         penalty = 0
         
+        # Update risk factor based on action taken
         if action != 0:
             self.risk_factor = min(self.risk_factor+self.lane_change_risk, 1)
         else:
             self.risk_factor = max(self.risk_factor-self.lane_change_risk, 0)
         
+        # Penalize for high speed and reward for safe speed
         clearance_rate = self.clearance_rates[self.current_lane - 1]
         if clearance_rate > self.speed_limit:
             penalty += self.speed_limit_penalty
             self.risk_factor = min(self.risk_factor+self.high_speed_risk, 1)
         elif clearance_rate <= self.safe_speed:
-            self.risk_factor = max(self.risk_factor-self.high_speed_risk, 1)
+            self.risk_factor = max(self.risk_factor-self.high_speed_risk, 0)
         
         accident_chance = self.accident_probability * (self.risk_factor / self.accident_threshold)
         
@@ -296,6 +294,8 @@ class CustomTrafficEnvironment(gym.Env):
         # Map the discrete action to the original action space (-1, 0, 1)
         mapped_action = self.action_mapping[action]
         
+        reward_types = {}
+        
         self._log(f"Taking action: {'left' if mapped_action==-1 else 'stay' if mapped_action==0 else 'right'}")
         self.render()
         
@@ -315,12 +315,6 @@ class CustomTrafficEnvironment(gym.Env):
             right_clearance_rate = self.clearance_rates[self.current_lane] if self.current_lane < self.lanes else 0
             
             reward += (current_clearance_rate - max(left_clearance_rate, right_clearance_rate)) * self.low_clearance_penalty_factor
-            
-            # # Penalize for staying in lane if the clearance rate is lower than adjacent lanes
-            # if ((current_clearance_rate < left_clearance_rate and left_clearance_rate < self.speed_limit) \
-            #     or (current_clearance_rate < right_clearance_rate and right_clearance_rate < self.speed_limit)):
-            #     reward += (current_clearance_rate - max(left_clearance_rate, right_clearance_rate)) * self.low_clearance_penalty_factor
-                
 
         # Update lane clearance rates based on neighboring lanes
         self._update_clearance_rates()
