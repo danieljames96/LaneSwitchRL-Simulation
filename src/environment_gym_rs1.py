@@ -98,26 +98,6 @@ class TrafficEnvironment(gym.Env):
 
         return penalty
 
-    def _attempt_lane_change_rs(self, action):
-        """
-        Attempts to change lane based on the action.
-        Args:
-        - action (int): -1 for left, 1 for right.
-        Returns:
-        - penalty (float): The penalty to be applied to the reward.
-        """
-        penalty = 0  # Penalty for attempting a lane change
-
-        # Check if the lane change is within bounds
-        new_lane = self.current_lane + action
-        if 1 <= new_lane <= self.lanes:
-            # Attempt the lane change with a 50% success rate
-            if random.random() < 0.5:
-                self.current_lane = new_lane  # Lane change succeeds
-        # If the lane change is invalid, the penalty is still applied
-
-        return penalty
-
     def _update_clearance_rates(self):
         # Update clearance rates based on adjacent lanes' speeds and add uncertainty term N(0, 0.1)
         updated_rates = self.clearance_rates.copy()
@@ -170,19 +150,10 @@ class TrafficEnvironment(gym.Env):
         terminated = False
         truncated = False
 
-        # Store the clearance rate and lane before taking action
-        previous_clearance_rate = self.clearance_rates[self.current_lane - 1]
-        previous_lane = self.current_lane
-
         # Handle lane change
-        if self.reward_shaping_flag == False:
-            if mapped_action != 0:
-                reward += self._attempt_lane_change(mapped_action)
-            # No action needed for staying in the current lane
-        else:
-            # No penalty for lane switching if reward shaping is enabled
-            if mapped_action != 0:
-                reward += self._attempt_lane_change_rs(mapped_action)
+        if mapped_action != 0:
+            reward += self._attempt_lane_change(mapped_action)
+        # No action needed for staying in the current lane
 
         # Update lane clearance rates based on neighboring lanes
         self._update_clearance_rates()
@@ -193,17 +164,8 @@ class TrafficEnvironment(gym.Env):
         self.distance -= distance_covered
         self.distance = round(self.distance, self.rounding_precision)
 
-        # Reward shaping
-        if previous_lane != self.current_lane and self.reward_shaping_flag:
-            if clearance_rate - previous_clearance_rate > 1:
-                reward += 5
-
         # Time penalty
-        if self.reward_shaping_flag == False:
-            reward += distance_covered - 10
-        else:
-            # reward shaping
-            reward += 2 * distance_covered - 10
+        reward += distance_covered - 10
         reward = round(reward, self.rounding_precision)
 
         # Now, after all the updates for the current time step, append the state to history
@@ -213,18 +175,56 @@ class TrafficEnvironment(gym.Env):
         if self.distance <= 0:
             terminated = True
             self.distance = 0
-            # reward shaping
-            if len(self.state_history) < 800:
-                reward += 100
 
         # Check if the episode is truncated (e.g., max time steps reached)
         self.time_step += 1
         if self.time_step >= self.max_time_steps:
             truncated = True
 
+        # Reward shaping: Penalty if the agent stayed in a slower lane for the last 3 timesteps
+        reward_shaping = 0
+        if self.reward_shaping_flag and len(self.state_history) >= 3:
+            # Check if the agent has stayed in the same lane for the last 3 timesteps
+            stayed_in_same_lane = (
+                self.state_history[-1][1] == self.state_history[-2][1] == self.state_history[-3][1]
+            )
+            
+            if stayed_in_same_lane:
+                current_lane_index = self.current_lane - 1  # Adjust for zero-indexed array
+                slower_in_all_timesteps = True  # Assume condition is met unless proven otherwise
+
+                for t in range(-3, 0):  # Check the last three timesteps
+                    # Current lane's clearance at timestep t
+                    current_clearance = self.state_history[t][2 + current_lane_index]
+                    
+                    # Get the clearance of adjacent lanes if they exist
+                    left_lane_clearance = self.state_history[t][2 + current_lane_index - 1] if current_lane_index > 0 else None
+                    right_lane_clearance = self.state_history[t][2 + current_lane_index + 1] if current_lane_index < self.lanes - 1 else None
+
+                    # Check conditions for left and right lanes
+                    left_lane_faster_and_clear = (
+                        left_lane_clearance is not None and
+                        left_lane_clearance > current_clearance
+                    )
+                    right_lane_faster_and_clear = (
+                        right_lane_clearance is not None and 
+                        right_lane_clearance > current_clearance
+                    )
+
+                    # The penalty condition: at least one adjacent lane must be faster and clearer than the current lane
+                    if not (left_lane_faster_and_clear or right_lane_faster_and_clear):
+                        # If this condition fails for any timestep, mark as False and stop checking
+                        slower_in_all_timesteps = False
+                        break
+
+                # Apply penalty if the condition is met for all three timesteps
+                if slower_in_all_timesteps:
+                    reward_shaping = -600
+                    reward += reward_shaping
+
         # Return the next observation using _get_obs()
         next_state = self._get_obs()
-        info = {}
+        info = {"reward_shaping": reward_shaping}  
 
         return next_state, reward, terminated, truncated, info
     

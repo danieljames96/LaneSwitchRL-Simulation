@@ -182,33 +182,46 @@ class TrafficEnvironment(gym.Env):
             truncated = True
 
         # Reward shaping: Penalty if the agent stayed in a slower lane for the last 3 timesteps
-        # Initialize reward_shaping = 0
         reward_shaping = 0
         if self.reward_shaping_flag and len(self.state_history) >= 3:
-            stayed_in_same_lane = (self.state_history[-1][1] == self.state_history[-2][1] == self.state_history[-3][1])
+            # Check if the agent has stayed in the same lane for the last 3 timesteps
+            stayed_in_same_lane = (
+                self.state_history[-1][1] == self.state_history[-2][1] == self.state_history[-3][1]
+            )
             
             if stayed_in_same_lane:
-                current_lane = self.current_lane - 1  # Adjust for zero-indexed array
-                
-                # Initialize slower_in_all_timesteps as True, assuming the condition is met
-                slower_in_all_timesteps = True
-                for t in range(-3, 0):  # Iterate over last three timesteps
-                    current_clearance = self.state_history[t][2 + current_lane]
+                current_lane_index = self.current_lane - 1  # Adjust for zero-indexed array
+                slower_in_all_timesteps = True  # Assume condition is met unless proven otherwise
+
+                for t in range(-3, 0):  # Check the last three timesteps
+                    # Current lane's clearance at timestep t
+                    current_clearance = self.state_history[t][2 + current_lane_index]
                     
-                    # Check adjacent lanes if they exist
-                    left_lane_clearance = self.state_history[t][2 + current_lane - 1] if current_lane > 0 else None
-                    right_lane_clearance = self.state_history[t][2 + current_lane + 1] if current_lane < self.lanes - 1 else None
-                    
-                    # Condition: Current lane must have a lower clearance than at least one adjacent lane (if it exists)
-                    if not ((left_lane_clearance is not None and current_clearance < left_lane_clearance) or 
-                            (right_lane_clearance is not None and current_clearance < right_lane_clearance)):
-                        # If condition fails for any timestep, set to False and break
+                    # Get the clearance of adjacent lanes if they exist
+                    left_lane_clearance = self.state_history[t][2 + current_lane_index - 1] if current_lane_index > 0 else None
+                    right_lane_clearance = self.state_history[t][2 + current_lane_index + 1] if current_lane_index < self.lanes - 1 else None
+
+                    # Check conditions for left and right lanes
+                    left_lane_faster_and_clear = (
+                        left_lane_clearance is not None and 
+                        left_lane_clearance > 5 and 
+                        left_lane_clearance > current_clearance
+                    )
+                    right_lane_faster_and_clear = (
+                        right_lane_clearance is not None and 
+                        right_lane_clearance > 5 and 
+                        right_lane_clearance > current_clearance
+                    )
+
+                    # The penalty condition: at least one adjacent lane must be faster and clearer than the current lane
+                    if not (left_lane_faster_and_clear or right_lane_faster_and_clear):
+                        # If this condition fails for any timestep, mark as False and stop checking
                         slower_in_all_timesteps = False
                         break
 
-                # Apply penalty if the condition is met in all three timesteps
+                # Apply penalty if the condition is met for all three timesteps
                 if slower_in_all_timesteps:
-                    reward_shaping = -60
+                    reward_shaping = -600
                     reward += reward_shaping
 
         # Return the next observation using _get_obs()
