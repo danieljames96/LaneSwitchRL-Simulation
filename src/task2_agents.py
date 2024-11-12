@@ -10,9 +10,8 @@ import optuna
 import json
 from datetime import datetime
 
-# TD class with states represented with integers
 class TemporalDifference:
-    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1, log_path='./logs/task2/training_logs.json'):
+    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -34,7 +33,6 @@ class TemporalDifference:
         self.oiv = oiv
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
-        self.log_path = log_path
 
         # Action space: 3 actions (0: move left, 1: stay, 2: move right)
         self.action_space = 3
@@ -84,12 +82,12 @@ class TemporalDifference:
         - transformed_state: Tuple containing the normalized distance percentage and discrete clearance rates.
         """
         # Normalize distance as a percentage of initial distance
-        distance_percentage = int((state[16] / initial_distance) * 10)
+        distance_percentage = int((state[0] / initial_distance) * 10)
         
         # Get current lane and clearance rates for adjacent lanes
-        current_lane = int(state[17])
-        risk_factor = round(state[18] * 5)
-        clearance_rates = state[19:]
+        current_lane = int(state[1])
+        risk_factor = round(state[2] * 5)
+        clearance_rates = state[3:]
         
         # Weighted average for lanes to the left and right of the current lane
         def weighted_average(rates, start, end, direction):
@@ -136,8 +134,10 @@ class TemporalDifference:
             episode_memory = []  # to be used when lambd = 1
             
             #reset episode, re-initialize E and total_reward
-            state, _ = self.Env.reset()
+            state, _ = self.Env.reset(seed=self.seed_value+episode)
             state = self.transform_state(state, self.Env.initial_distance)
+            
+            self.set_seed(self.seed_value+episode)
             
             terminated, truncated = False, False
             self.E.clear()
@@ -334,10 +334,13 @@ class TemporalDifference:
         early_termination_count = 0
         rewards = []
         timesteps = []
+        all_episode_reward_types = []
 
         with open(output_file, 'w') as f:
             for episode in tqdm(range(num_episodes)):
-                state, _ = self.Env.reset()
+                state, info = self.Env.reset(seed=self.seed_value+episode)
+                
+                self.set_seed(self.seed_value+episode)
                 
                 episode_details = {
                     "Episode": episode + 1,
@@ -348,6 +351,7 @@ class TemporalDifference:
                 state = self.transform_state(state, self.Env.initial_distance)
                 episode_steps, episode_rewards  = 0, 0
                 terminated, truncated = False, False
+                reward_type_values = info
 
                 while not terminated and not truncated:
                     # Select action based on the trained policy without updating Q-values
@@ -356,7 +360,12 @@ class TemporalDifference:
                     mapped_action = action - 1
                     
                     # Take action in the environment
-                    next_state, reward, terminated, truncated, _ = self.Env.step(action)
+                    next_state, reward, terminated, truncated, info = self.Env.step(action)
+                    
+                    for key in info.keys():
+                        if key not in reward_type_values:
+                            reward_type_values[key] = 0
+                        reward_type_values[key] += round(info[key],1)
                     
                     # Log details of each timestep including reward
                     timestep_details = {
@@ -382,15 +391,19 @@ class TemporalDifference:
                 # Add total reward and timestep count to episode details
                 episode_details["Total Reward"] = episode_rewards
                 episode_details["Total Timesteps"] = episode_steps
+                all_episode_reward_types.append(reward_type_values)
 
                 # Write the full episode details as a JSON object to the file
                 f.write(json.dumps(episode_details) + "\n")
                 
                 early_termination_count += int(truncated)
-            
+        
+        df = pd.DataFrame(all_episode_reward_types)
+        all_episode_reward_types = df.mean().to_dict()    
+        
         print(f"Early terminations: {early_termination_count}")
 
-        return rewards, timesteps, output_file
+        return rewards, timesteps, all_episode_reward_types, output_file
         
     def hyperparameter_tuning(self, hyperparameter_space, lambd=0, episodes=10000, on_policy=True, n_trials=50):
         """
@@ -549,9 +562,8 @@ class RuleBasedAgent:
         Returns:
         - action (int): 0 (move left), 1 (stay), or 2 (move right)
         """
-        
-        self.current_lane = int(state[17])  # Current lane at time step t
-        self.clearance_rates = state[19:]  # Clearance rates at time step t
+        self.current_lane = int(state[1])  # Current lane at time step t
+        self.clearance_rates = state[3:]  # Clearance rates at time step t
 
         if self.strategy == 'fastest_adjacent':
             return self._choose_action_fastest_adjacent()
@@ -585,9 +597,9 @@ class RuleBasedAgent:
         """
         formatted_state = []
         for i, value in enumerate(state):
-            if i in [1, 9, 17]:  # Indices to be converted to integers
+            if i == 1:  # Indices to be converted to integers
                 formatted_state.append(int(value))
-            elif i in [2, 10, 18]:
+            elif i == 2:
                 continue  # Skip these indices
             else:
                 formatted_state.append(round(value, 1))  # Round to one decimal place
@@ -597,6 +609,7 @@ class RuleBasedAgent:
         all_episode_rewards = []
         all_timesteps = []
         truncated_count = 0
+        all_episode_reward_types = []
 
         with open(output_file, 'w') as f:
             for episode in tqdm(range(num_episodes)):
@@ -605,11 +618,14 @@ class RuleBasedAgent:
                 options = {
                     'starting_lane': starting_lane
                 }
-                state, _ = self.Env.reset(options=options)
+                state, info = self.Env.reset(seed=self.seed_value+episode, options=options)
                 terminated = False
                 truncated = False
                 cumulative_reward = 0
                 episode_steps = 0
+                reward_type_values = info
+                
+                self.set_seed(self.seed_value+episode)
                 
                 episode_details = {
                         "Episode": episode + 1,
@@ -619,13 +635,18 @@ class RuleBasedAgent:
 
                 while not terminated and not truncated:
                     action = self.choose_action(state)
-                    next_state, reward, terminated, truncated, _ = self.Env.step(action)
+                    next_state, reward, terminated, truncated, info = self.Env.step(action)
                     cumulative_reward += reward
                     state = next_state
                     episode_steps += 1
                     
                     action = int(action)
                     mapped_action = action - 1
+                    
+                    for key in info.keys():
+                        if key not in reward_type_values:
+                            reward_type_values[key] = 0
+                        reward_type_values[key] += round(info[key],1)
                     
                     # Log details of each timestep including reward
                     timestep_details = {
@@ -647,6 +668,7 @@ class RuleBasedAgent:
                 # Add total reward and timestep count to episode details
                 episode_details["Total Reward"] = episode_rewards
                 episode_details["Total Timesteps"] = episode_steps
+                all_episode_reward_types.append(reward_type_values)
 
                 # Write the full episode details as a JSON object to the file
                 f.write(json.dumps(episode_details) + "\n")
@@ -655,10 +677,14 @@ class RuleBasedAgent:
                 all_episode_rewards.append(cumulative_reward)
                 if not truncated:
                     all_timesteps.append(episode_steps)
+        
+        df = pd.DataFrame(all_episode_reward_types)
+        all_episode_reward_types = df.mean().to_dict()
+
 
         print(f"Truncated episodes: {truncated_count}")
         
-        return all_episode_rewards, all_timesteps, output_file
+        return all_episode_rewards, all_timesteps, all_episode_reward_types, output_file
     
     def plot_metrics(self, rewards, steps, window_size=50):
         """

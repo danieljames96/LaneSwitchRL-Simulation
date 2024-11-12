@@ -1,4 +1,8 @@
 *.xlsx
+*.json
+*.csv
+*.gif
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
