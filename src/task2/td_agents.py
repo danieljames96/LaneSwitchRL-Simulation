@@ -12,13 +12,23 @@ from datetime import datetime
 class TemporalDifference:
     def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1):
         """
-        Args:
-        - lanes (int): Number of lanes (default is 5).
-        - alpha (float): learning rate, between 0 and 1
-        - epsilon (float): exploration rate between, 0 and 1
-        - lambd (float): contribution of past rewards, between 0 and 1
-        - gamma (float): discount factor, between 0 and 1
-        - oiv (int/float): optimistic initial value
+        Initializes the Temporal Difference learning agent.
+
+        Parameters:
+        - env: The environment instance in which the agent interacts.
+        - oiv (float): Optimistic initial value for Q-values.
+        - alpha (float): Learning rate, between 0 and 1.
+        - epsilon (float): Exploration rate for epsilon-greedy policy.
+        - lambd (float): Contribution of past rewards (eligibility trace decay factor).
+        - gamma (float): Discount factor for future rewards.
+        - epsilon_decay (float): Rate at which epsilon decays over episodes.
+        - epsilon_min (float): Minimum value of epsilon after decay.
+        
+        Attributes:
+        - Q (defaultdict): Q-value table with state-action pairs initialized to `oiv`.
+        - E (defaultdict): Eligibility trace table with state-action pairs initialized to `oiv`.
+        - best_Q (dict): Stores the best Q-value table found during training.
+        - best_reward (float): Stores the highest average reward achieved.
         """
         super().__init__()
         self.Env = env
@@ -36,8 +46,6 @@ class TemporalDifference:
         # Action space: 3 actions (0: move left, 1: stay, 2: move right)
         self.action_space = 3
 
-        # use nested dictionaries for V, Q, E.
-        # {state: [s_a1, s_a2, s_a3]}
         self.Q = defaultdict(lambda: np.zeros(self.action_space) + self.oiv)
         self.E = defaultdict(lambda: np.zeros(self.action_space) + self.oiv)
         
@@ -46,10 +54,25 @@ class TemporalDifference:
         self.best_reward = float('-inf')
     
     def set_seed(self, seed):
+        """
+        Sets the random seed for reproducibility.
+
+        Parameters:
+        - seed (int): Seed value for random number generation.
+        """
         random.seed(seed)
         np.random.seed(seed)
     
     def get_best_action(self, state: tuple):
+        """
+        Returns the best action for a given state based on current Q-values.
+
+        Parameters:
+        - state (tuple): Discretized representation of the environment state.
+
+        Returns:
+        - best_action (int): The action with the highest Q-value for the given state.
+        """
         # if state not present, act random
         if state not in self.Q.keys():
             self.Env._log(f"State not found in Q: {state}")
@@ -63,6 +86,15 @@ class TemporalDifference:
 
     # define epsilon greedypolicy
     def epsilon_greedy_policy(self, state):
+        """
+        Chooses an action using epsilon-greedy policy.
+
+        Parameters:
+        - state (tuple): Discretized state from the environment.
+
+        Returns:
+        - action (int): Action chosen based on epsilon-greedy strategy.
+        """
         if np.random.rand() < self.epsilon:
             return random.randint(0, self.action_space-1)
         else:
@@ -70,15 +102,15 @@ class TemporalDifference:
     
     def transform_state(self, state, initial_distance, num_discrete_levels=10):
         """
-        Normalize the distance to a percentage of the initial distance and discretize clearance rates.
-        
-        Args:
-        - state: The original state tuple from the environment.
-        - initial_distance: Initial distance to the destination for normalizing distance.
-        - num_discrete_levels: Number of discrete levels for clearance rates.
+        Normalizes distance as a percentage of the initial distance and discretizes clearance rates.
+
+        Parameters:
+        - state (tuple): Raw state from the environment.
+        - initial_distance (int): Initial distance for normalizing.
+        - num_discrete_levels (int): Levels for discretizing clearance rates.
 
         Returns:
-        - transformed_state: Tuple containing the normalized distance percentage and discrete clearance rates.
+        - transformed_state (tuple): Discretized state including lane rates and risk factor.
         """
         # Normalize distance as a percentage of initial distance
         distance_percentage = int((state[0] / initial_distance) * 10)
@@ -123,8 +155,18 @@ class TemporalDifference:
         return (current_lane_rate, left_lane_rate, right_lane_rate, risk_factor) # distance_percentage, current_lane
     
     def train(self, num_episodes = 1000 , on_policy = True, save_model = False):
+        """
+        Trains the agent using Temporal Difference learning.
 
-        #initialize list to store episode history
+        Parameters:
+        - num_episodes (int): Number of episodes to train.
+        - on_policy (bool): Whether to use on-policy (SARSA) or off-policy (Q-learning).
+        - save_model (bool): Whether to save the model if performance improves.
+
+        Returns:
+        - total_reward_list (list): Rewards per episode.
+        - total_steps_list (list): Steps per episode.
+        """
         self.total_reward_list = []
         self.total_steps_list = []
         early_termination_count = 0
@@ -227,12 +269,15 @@ class TemporalDifference:
     
     def plot_metrics(self, rewards, steps, window_size=50):
         """
-        Plot training and eval metrics (rewards and steps) with rolling mean (window_size)
+        Plots the training metrics for rewards and steps with a rolling mean.
+
+        Parameters:
+        - rewards (list): List of rewards per episode.
+        - steps (list): List of steps per episode.
+        - window_size (int): Window size for rolling average.
         
-        Args:
-        rewards: list of episode rewards
-        steps: list of episode steps
-        window_size: size of rolling window for smoothing
+        Returns:
+        - fig (matplotlib.figure.Figure): Figure containing the plots.
         """
         
         # Create figure with two subplots side by side
@@ -272,36 +317,16 @@ class TemporalDifference:
         # Adjust layout and display
         plt.tight_layout()
         return fig
-    
-    def q_table_to_dataframe(self):
-        
-        data = {
-            "State": [],
-            "Left": [],
-            "Stay": [],
-            "Right": []
-        }
-    
-        for state, q_values in self.Q.items():
-            data["State"].append(state)
-            for i in range(len(q_values)):
-                data['Left' if i==0 else 'Stay' if i==1 else 'Right'].append(q_values[i])
-
-        # Convert the dictionary to a DataFrame
-        q_df = pd.DataFrame(data)
-        
-        # Split the 'State' column into separate columns
-        state_df = pd.DataFrame(q_df['State'].tolist(), columns=['Current Lane Rate', 'Left Lane Rate', 'Right Lane Rate', 'Risk Factor'])
-
-        # Concatenate the split columns with the original DataFrame
-        q_df = pd.concat([state_df, q_df.drop(columns=['State'])], axis=1)
-        
-        return q_df
         
     def format_state(self, state):
         """
-        Formats the state array so that specific indices are integers, 
-        and others are rounded to one decimal place.
+        Formats the environment state by converting specific indices to integers and rounding others.
+
+        Parameters:
+        - state (list): Raw state list from the environment.
+
+        Returns:
+        - formatted_state (list): State with specified indices as integers and others rounded to one decimal.
         """
         formatted_state = []
         for i, value in enumerate(state):
@@ -314,20 +339,18 @@ class TemporalDifference:
         return formatted_state
         
     def evaluate(self, num_episodes=100, output_file=f"./logs/task2/test_log_tdlambda_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"):
-
         """
-        Evaluate the Temporal Difference agent in inference mode.
+        Evaluates the Temporal Difference agent in inference mode over a specified number of episodes.
 
-        Args:
-        - agent: Instance of the trained TemporalDifference agent.
-        - env: The environment in which to evaluate the agent.
-        - num_episodes (int): Number of episodes to evaluate.
-        - checkpoint_interval (int): Interval to log cumulative rewards at checkpoints.
+        Parameters:
+        - num_episodes (int): Number of episodes for evaluation.
+        - output_file (str): Path for the JSON log file to record episode details.
 
         Returns:
-        - avg_rewards: Average rewards per episode across all episodes.
-        - avg_steps: Average steps per episode across all episodes.
-        - checkpoint_rewards: Rewards recorded at specified checkpoint intervals.
+        - rewards (list): Total reward per episode.
+        - timesteps (list): Total steps per episode.
+        - all_episode_reward_types (dict): Average reward type values across episodes.
+        - output_file (str): Path of the generated log file.
         """
         
         early_termination_count = 0
@@ -406,15 +429,15 @@ class TemporalDifference:
         
     def hyperparameter_tuning(self, hyperparameter_space, lambd=0, episodes=10000, on_policy=True, n_trials=50):
         """
-        Perform hyperparameter tuning using Optuna.
+        Tunes hyperparameters using Optuna to maximize average episode reward.
 
         Parameters:
-            hyperparameter_space (dict): Dictionary defining the ranges of hyperparameters to tune.
-            episodes (int): Number of training episodes for each trial.
-            n_trials (int): Number of trials to run for the Optuna study.
+            hyperparameter_space (dict): Ranges for hyperparameters to explore.
+            episodes (int): Training episodes per trial.
+            n_trials (int): Number of trials in Optuna study.
 
         Returns:
-            tuple: The best agent instance and the best hyperparameters found.
+            tuple: Instance of the best agent and the optimal hyperparameters.
         """
 
         def objective(trial):
@@ -463,11 +486,10 @@ class TemporalDifference:
     
     def analyze_model_actions(self):
         """
-        Analyze action distribution from either a saved model file or a TD agent
-        
-        Args:
-        - model_path (str): Path to saved model JSON file (optional)
-        - td_agent (TemporalDifference): Trained TD agent (optional)
+        Analyzes the distribution of actions across states based on trained Q-values.
+
+        Returns:
+        - tuple: Counts and percentages of 'Left', 'Stay', and 'Right' actions.
         """
         # Get Q-values either from file or agent
         q_values = dict(self.Q)
@@ -504,7 +526,12 @@ class TemporalDifference:
 
     def plot_action_distribution(self, left, stay, right):
         """
-        Plot the distribution of actions as a bar chart
+        Plots the action distribution as a bar chart.
+        
+        Parameters:
+        - left (int): Count of 'Left' actions.
+        - stay (int): Count of 'Stay' actions.
+        - right (int): Count of 'Right' actions.
         """
         actions = ['Left', 'Stay', 'Right']
         counts = [left, stay, right]

@@ -7,13 +7,16 @@ import pandas as pd
 class PolicyAgents:
     def __init__(self, env, model):
         """
-        Args:
-        - lanes (int): Number of lanes (default is 5).
-        - alpha (float): learning rate, between 0 and 1
-        - epsilon (float): exploration rate between, 0 and 1
-        - lambd (float): contribution of past rewards, between 0 and 1
-        - gamma (float): discount factor, between 0 and 1
-        - oiv (int/float): optimistic initial value
+        Initializes the PolicyAgents class to evaluate and analyze a trained model in a specified environment.
+
+        Parameters:
+        - env: The simulation environment in which the agent will interact.
+        - model: The trained model implementing a policy for the agent to follow.
+
+        Attributes:
+        - Env: The provided environment object for the agent.
+        - seed_value: The seed for reproducibility, derived from the environment.
+        - model: The trained policy model.
         """
         super().__init__()
         self.Env = env
@@ -22,8 +25,13 @@ class PolicyAgents:
     
     def format_state(self, state):
         """
-        Formats the state array so that specific indices are integers, 
-        and others are rounded to one decimal place.
+        Formats the input state by converting specific indices to integers and rounding others to one decimal place.
+
+        Parameters:
+        - state (list or array): The raw state information from the environment.
+
+        Returns:
+        - formatted_state (list): State with specified indices converted to integers and others rounded.
         """
         formatted_state = []
         for i, value in enumerate(state):
@@ -37,18 +45,18 @@ class PolicyAgents:
     
     def evaluate(self, num_episodes, output_file=None):
         """
-        Evaluates the model over a specified number of episodes, records rewards for each episode,
-        and plots the rewards.
+        Evaluates the model over a specified number of episodes and records the results.
 
-        Args:
-        - model: Trained model to be tested.
-        - env (gym.Env): The environment to evaluate the model on.
-        - num_episodes (int): Total number of episodes to run the evaluation.
-        - output_file (str, optional): The path to the JSON file where episode details will be saved. If not provided,
-        a timestamped default filename will be used.
+        Parameters:
+        - num_episodes (int): Total number of episodes to run for evaluation.
+        - output_file (str, optional): Path to save the evaluation log as a JSON file. 
+          If None, a timestamped filename will be generated.
 
         Returns:
-        - episode_rewards (list): List of total rewards for each episode.
+        - rewards (list): Total rewards for each episode.
+        - timesteps (list): Total timesteps for each episode.
+        - all_episode_reward_types (dict): Average rewards of different types per episode.
+        - action_distribution (list): Average distribution of actions across episodes.
         """
         
         # Use a timestamped default filename if output_file is not provided
@@ -139,13 +147,12 @@ class PolicyAgents:
     
     def plot_test_results(self, rewards, timesteps, interval=10):
         """
-        Plots individual episode rewards and timesteps as dots with transparency, 
-        along with average rewards and timesteps per specified interval (e.g., 10 episodes) as lines.
+        Plots individual episode rewards and timesteps with average trend lines.
 
-        Args:
-        - rewards (list): List of total rewards for each episode.
-        - timesteps (list): List of total timesteps for each episode.
-        - interval (int): Number of episodes over which to average values for the line plot.
+        Parameters:
+        - rewards (list): Total rewards for each episode.
+        - timesteps (list): Total timesteps for each episode.
+        - interval (int): Number of episodes per interval for calculating averages.
         """
         
         # Calculate average rewards and timesteps per interval episodes
@@ -184,7 +191,13 @@ class PolicyAgents:
         
     def analyze_model_actions(self, action_dist):
         """
-        Analyze action distribution from a list of action counts.
+        Analyzes and displays the distribution of actions taken by the model.
+
+        Parameters:
+        - action_dist (list): List containing counts of each action across episodes.
+
+        Returns:
+        - left, stay, right, left_pct, stay_pct, right_pct (tuple): Counts and percentages for each action.
         """
 
         # Analyze action distribution
@@ -210,7 +223,12 @@ class PolicyAgents:
     
     def plot_action_distribution(self, left, stay, right):
         """
-        Plot the distribution of actions as a bar chart
+        Plots the distribution of actions as a bar chart.
+
+        Parameters:
+        - left (int): Count of left actions.
+        - stay (int): Count of stay actions.
+        - right (int): Count of right actions.
         """
         actions = ['Left', 'Stay', 'Right']
         counts = [left, stay, right]

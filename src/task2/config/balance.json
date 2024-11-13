@@ -1,0 +1,10 @@
+{
+    "speed_limit_penalty": -7,
+    "accident_penalty": -90,
+    "high_risk_penalty": -20,
+    "lane_change_penalty": 0,
+    "time_penalty": -2,
+    "wrong_lane_penalty": -20,
+    "low_clearance_penalty_factor": 2,
+    "distance_reward_factor": 0
+}

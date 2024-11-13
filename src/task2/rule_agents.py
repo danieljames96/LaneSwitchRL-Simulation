@@ -10,10 +10,22 @@ from datetime import datetime
 class RuleBasedAgent:
     def __init__(self, env, initial_distance=4000, num_lanes=5, strategy='fastest_adjacent'):
         """
-        Initialize the Agent with a specified strategy.
-        
-        Args:
-        - strategy (str): The strategy to use ('fastest_adjacent', 'stay').
+        Initializes the RuleBasedAgent with a specified strategy for navigating lanes.
+
+        Parameters:
+        - env: The environment instance where the agent will act.
+        - initial_distance (int): The initial distance to the destination.
+        - num_lanes (int): The number of lanes in the environment.
+        - strategy (str): Strategy for lane selection ('fastest_adjacent' or 'stay').
+
+        Attributes:
+        - Env: Environment object where the agent interacts.
+        - strategy: Strategy for decision-making.
+        - initial_distance: The starting distance to the target.
+        - num_lanes: Total number of lanes in the environment.
+        - seed_value: Seed value for reproducibility.
+        - current_lane: Current lane of the agent.
+        - clearance_rates: Clearance rates per lane at the current time step.
         """
         self.Env = env
         self.strategy = strategy
@@ -28,18 +40,24 @@ class RuleBasedAgent:
         self.clearance_rates = None
     
     def set_seed(self, seed):
+        """
+        Sets the random seed for reproducibility.
+
+        Parameters:
+        - seed (int): Seed value for random number generation.
+        """
         random.seed(seed)
         np.random.seed(seed)
 
     def choose_action(self, state):
         """
-        Choose an action based on the current state and the selected strategy.
-        
-        Args:
-        - state (np.array): Flattened state containing past three time steps.
-        
+        Selects an action based on the current state and the agent's strategy.
+
+        Parameters:
+        - state (np.array): The current state as a flattened array.
+
         Returns:
-        - action (int): 0 (move left), 1 (stay), or 2 (move right)
+        - action (int): Action to take (0: move left, 1: stay, 2: move right).
         """
         self.current_lane = int(state[1])  # Current lane at time step t
         self.clearance_rates = state[3:]  # Clearance rates at time step t
@@ -52,7 +70,12 @@ class RuleBasedAgent:
             raise ValueError("Invalid strategy. Choose 'fastest_adjacent' or 'stay'.")
 
     def _choose_action_fastest_adjacent(self):
-        """Selects the adjacent lane with the highest clearance rate if it's better than the current lane."""
+        """
+        Chooses the adjacent lane with the highest clearance rate, if better than the current lane.
+
+        Returns:
+        - action (int): Action to take (0: move left, 1: stay, 2: move right).
+        """
         
         # Get the clearance rate for the current lane
         current_lane_rate = self.clearance_rates[self.current_lane - 1]
@@ -71,8 +94,13 @@ class RuleBasedAgent:
     
     def format_state(self, state):
         """
-        Formats the state array so that specific indices are integers, 
-        and others are rounded to one decimal place.
+        Formats the state array, converting specific indices to integers and rounding others.
+
+        Parameters:
+        - state (list or np.array): Raw state data from the environment.
+
+        Returns:
+        - formatted_state (list): Processed state with specified values as integers or rounded.
         """
         formatted_state = []
         for i, value in enumerate(state):
@@ -85,6 +113,20 @@ class RuleBasedAgent:
         return formatted_state
     
     def evaluate_agent(self, num_episodes=10, starting_lane = 1, output_file=f"./logs/task2/rule_test_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"):
+        """
+        Evaluates the agent over a specified number of episodes, recording rewards and steps.
+
+        Parameters:
+        - num_episodes (int): Number of episodes to run.
+        - starting_lane (int): Lane from which the agent starts each episode.
+        - output_file (str, optional): Path to the JSON file for saving episode logs. If None, a timestamped file is used.
+
+        Returns:
+        - all_episode_rewards (list): Cumulative reward for each episode.
+        - all_timesteps (list): Total steps per episode.
+        - all_episode_reward_types (dict): Average rewards for different types.
+        - output_file (str): Path to the output file with evaluation details.
+        """
         all_episode_rewards = []
         all_timesteps = []
         truncated_count = 0
@@ -167,12 +209,15 @@ class RuleBasedAgent:
     
     def plot_metrics(self, rewards, steps, window_size=50):
         """
-        Plot training and eval metrics (rewards and steps) with rolling mean (window_size)
+        Plots episode rewards and steps with a rolling mean for smoothing.
+
+        Parameters:
+        - rewards (list): List of cumulative rewards per episode.
+        - steps (list): List of steps taken per episode.
+        - window_size (int): Window size for rolling mean.
         
-        Args:
-        rewards: list of episode rewards
-        steps: list of episode steps
-        window_size: size of rolling window for smoothing
+        Returns:
+        - fig (matplotlib.figure.Figure): The figure containing the plots.
         """
         
         # Create figure with two subplots side by side

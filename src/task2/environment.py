@@ -1,8 +1,11 @@
-import numpy as np
+import json
+import logging
+import os
 import random
+
 import gymnasium as gym
 from gymnasium import spaces
-import logging
+import numpy as np
 
 class CustomTrafficEnvironment(gym.Env):
     """
@@ -20,7 +23,7 @@ class CustomTrafficEnvironment(gym.Env):
     """
     metadata = {'render.modes':['human']}
     
-    def __init__(self, lanes=5, initial_distance=4000, max_time_steps = 10000, seed=None, logging_enabled=False):
+    def __init__(self, lanes=5, initial_distance=4000, max_time_steps = 10000, seed=None, logging_enabled=False, config=None):
         """
         Initializes the environment, setting up lanes, initial distance, time steps,
         and other parameters related to penalties and conditions.
@@ -31,6 +34,7 @@ class CustomTrafficEnvironment(gym.Env):
             max_time_steps (int): Maximum time steps allowed per episode.
             seed (int, optional): Seed for reproducibility.
             logging_enabled (bool): Enable detailed logging if True.
+            config (dict or str, optional): Configuration dictionary or path to JSON file.
         """
         
         super(CustomTrafficEnvironment, self).__init__()
@@ -41,6 +45,7 @@ class CustomTrafficEnvironment(gym.Env):
         self.initial_distance = initial_distance
         self.logger = self._initialize_logger(logging_enabled)
         self.logging_enabled = logging_enabled
+        self.config = self._load_config(config)
         
         # Initialize other environment parameters
         self._initialize_parameters()
@@ -48,7 +53,33 @@ class CustomTrafficEnvironment(gym.Env):
 
         # Reset to the initial environment state
         self.reset()
-        
+    
+    def _load_config(self, config):
+        """
+        Loads configuration from a dictionary or JSON file.
+
+        Parameters:
+            config (dict or str): Configuration dictionary or path to JSON file.
+
+        Returns:
+            dict: Configuration parameters.
+        """
+        if config is None:
+            return {}  # Return empty dict if no config is provided
+        elif isinstance(config, str):
+            # If config is a file path, load the JSON file
+            if os.path.isfile(config):
+                with open(config, 'r') as f:
+                    config_data = json.load(f)
+                return config_data
+            else:
+                raise FileNotFoundError(f"Config file {config} not found.")
+        elif isinstance(config, dict):
+            # If config is a dictionary, use it directly
+            return config
+        else:
+            raise ValueError("Config must be a dictionary or a valid file path to a JSON file.")
+    
     def _initialize_logger(self, logging_enabled):
         """Sets up logging for the environment if logging is enabled."""
         logger = logging.getLogger(__name__)
@@ -63,34 +94,34 @@ class CustomTrafficEnvironment(gym.Env):
     
     def _initialize_parameters(self):
         """Initializes parameters related to penalties, probabilities, and risk factors."""
-        self.clearance_rate_min = 5 # Minimum clearance rate
-        self.clearance_rate_max = 30 # Maximum clearance rate
-        self.clearance_rate_change_factor = 0.2 # Clearance rate change factor
-        self.rain_probability = 0.2 # Probability of rain
-        self.rain_edge_lane_effect = -0.3 # Rain effect on edge lanes
-        self.rain_center_lane_effect = -0.2 # Rain effect on center lanes
-        self.accident_threshold = 0.9 # Accident threshold
-        self.base_accident_probability = 0.001 # Accident probability
-        self.speed_limit = 25 # Speed limit
-        self.speed_limit_penalty = -6 # Speed limit penalty
-        self.safe_speed = 10 # Safe speed
-        self.accident_penalty = -85 # Accident penalty
-        self.high_risk_threshold = 0.8 * self.accident_threshold # 80% of the accident threshold
-        self.high_risk_penalty = -4 # High-risk penalty
-        self.lane_change_risk = 0.05 # Lane change risk
-        self.high_speed_risk = 0.15 # High-speed risk
-        self.lane_change_penalty = 0 # Lane change penalty
-        self.time_penalty = -2 # Time penalty
-        self.wrong_lane_penalty = -30 # Wrong lane penalty
-        self.low_clearance_penalty_factor = 1.6 # Low clearance penalty factor
-        self.lane_change_probability = 0.6 # Lane change probability
-        self.slowdown_probability = 0.05 # Slowdown probability
-        self.speed_up_probability = 0.05 # Speed up probability
-        self.slowdown_factor = (0.2, 0.5) # Slowdown factor
-        self.speed_up_factor = (0.2, 0.4) # Speed up factor
-        self.distance_reward_factor = 0 # Distance reward factor
-        self.rounding_precision = 1 # Rounding precision for clearance rates
-        self.action_mapping = {0: -1, 1: 0, 2: 1} # Mapping discrete actions to original actions
+        self.clearance_rate_min = self.config.get('clearance_rate_min', 5)
+        self.clearance_rate_max = self.config.get('clearance_rate_max', 30)
+        self.clearance_rate_change_factor = self.config.get('clearance_rate_change_factor', 0.2)
+        self.rain_probability = self.config.get('rain_probability', 0.2)
+        self.rain_edge_lane_effect = self.config.get('rain_edge_lane_effect', -0.3)
+        self.rain_center_lane_effect = self.config.get('rain_center_lane_effect', -0.2)
+        self.accident_threshold = self.config.get('accident_threshold', 0.9)
+        self.base_accident_probability = self.config.get('base_accident_probability', 0.001)
+        self.speed_limit = self.config.get('speed_limit', 25)
+        self.speed_limit_penalty = self.config.get('speed_limit_penalty', -6)
+        self.safe_speed = self.config.get('safe_speed', 10)
+        self.accident_penalty = self.config.get('accident_penalty', -85)
+        self.high_risk_threshold = self.config.get('high_risk_threshold', 0.8 * self.accident_threshold)
+        self.high_risk_penalty = self.config.get('high_risk_penalty', -4)
+        self.lane_change_risk = self.config.get('lane_change_risk', 0.05)
+        self.high_speed_risk = self.config.get('high_speed_risk', 0.15)
+        self.lane_change_penalty = self.config.get('lane_change_penalty', 0)
+        self.time_penalty = self.config.get('time_penalty', -2)
+        self.wrong_lane_penalty = self.config.get('wrong_lane_penalty', -30)
+        self.low_clearance_penalty_factor = self.config.get('low_clearance_penalty_factor', 1.6)
+        self.lane_change_probability = self.config.get('lane_change_probability', 0.6)
+        self.slowdown_probability = self.config.get('slowdown_probability', 0.05)
+        self.speed_up_probability = self.config.get('speed_up_probability', 0.05)
+        self.slowdown_factor = self.config.get('slowdown_factor', (0.2, 0.5))
+        self.speed_up_factor = self.config.get('speed_up_factor', (0.2, 0.4))
+        self.distance_reward_factor = self.config.get('distance_reward_factor', 0)
+        self.rounding_precision = self.config.get('rounding_precision', 1)
+        self.action_mapping = self.config.get('action_mapping', {0: -1, 1: 0, 2: 1})
     
     def _define_action_observation_space(self):
         """Defines the action and observation spaces for the environment."""
