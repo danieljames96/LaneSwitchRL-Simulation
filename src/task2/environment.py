@@ -95,8 +95,8 @@ class CustomTrafficEnvironment(gym.Env):
     def _define_action_observation_space(self):
         """Defines the action and observation spaces for the environment."""
         self.action_space = spaces.Discrete(3)  # Actions: left, stay, right
-        low_obs = np.array([0, 1] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
-        high_obs = np.array([self.initial_distance] + [self.lanes] + [self.clearance_rate_max] * self.lanes, dtype=np.float32)
+        low_obs = np.array([0, 1, 0] + [self.clearance_rate_min] * self.lanes, dtype=np.float32)
+        high_obs = np.array([self.initial_distance] + [self.lanes] + [1] + [self.clearance_rate_max] * self.lanes, dtype=np.float32)
         self.observation_space = spaces.Box(low=low_obs, high=high_obs, dtype=np.float32)
     
     def set_seed(self, seed):

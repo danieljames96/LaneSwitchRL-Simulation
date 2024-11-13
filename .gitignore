@@ -4,6 +4,9 @@
 *.gif
 *.png
 
+notebooks/gifs
+notebooks/logs
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

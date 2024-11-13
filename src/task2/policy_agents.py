@@ -1,22 +1,11 @@
-import numpy as np
-import random
-from tqdm import tqdm
-from collections import defaultdict
-import seaborn as sns
 import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-import optuna
 import json
 from datetime import datetime
-
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.monitor import Monitor
+from tqdm import tqdm
+import pandas as pd
 
 class PolicyAgents:
-    def __init__(self, env, oiv = 0, alpha=0.1, epsilon=0.1, lambd=0.9, gamma=0.9, epsilon_decay=0.999, epsilon_min=0.1):
+    def __init__(self, env, model):
         """
         Args:
         - lanes (int): Number of lanes (default is 5).
@@ -29,27 +18,7 @@ class PolicyAgents:
         super().__init__()
         self.Env = env
         self.seed_value = self.Env.seed_value
-        if self.seed_value is not None:
-            self.set_seed(self.seed_value)
-        self.alpha = alpha
-        self.epsilon = epsilon
-        self.lambd = lambd
-        self.gamma = gamma
-        self.oiv = oiv
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-
-        # Action space: 3 actions (0: move left, 1: stay, 2: move right)
-        self.action_space = 3
-
-        # use nested dictionaries for V, Q, E.
-        # {state: [s_a1, s_a2, s_a3]}
-        self.Q = defaultdict(lambda: np.zeros(self.action_space) + self.oiv)
-        self.E = defaultdict(lambda: np.zeros(self.action_space) + self.oiv)
-        
-        # store 'best model'
-        self.best_Q = None
-        self.best_reward = float('-inf')
+        self.model = model
     
     def format_state(self, state):
         """
@@ -66,7 +35,7 @@ class PolicyAgents:
                 formatted_state.append(round(value, 1))  # Round to one decimal place
         return formatted_state
     
-    def evaluate(self, model, env, num_episodes, output_file=None):
+    def evaluate(self, num_episodes, output_file=None):
         """
         Evaluates the model over a specified number of episodes, records rewards for each episode,
         and plots the rewards.
@@ -89,27 +58,40 @@ class PolicyAgents:
         # Initialize lists for rewards and timesteps
         rewards = []
         timesteps = []
+        all_episode_reward_types = []
+        early_termination_count = 0
+        action_distribution = []
 
         # Create a JSON file for writing
         with open(output_file, 'w') as f:
             # Run the model for the specified number of episodes
-            for episode in range(num_episodes):
-                obs, info = env.reset()
+            for episode in tqdm(range(num_episodes)):
+                obs, info = self.Env.reset(seed=self.seed_value+episode)
                 episode_reward = 0
                 episode_timestep = 0
+                action_count = [0, 0, 0]
                 episode_details = {
                     "Episode": episode + 1,
                     "Initial State": self.format_state(obs.tolist() if hasattr(obs, 'tolist') else obs),
                     "Timesteps": []
                 }
+                
+                terminated, truncated = False, False
+                reward_type_values = info
 
                 while True:  # Run until the episode ends
-                    action, _states = model.predict(obs, deterministic=True)
+                    action, _states = self.model.predict(obs, deterministic=True)
                     action = int(action)
                     mapped_action = action - 1
-                    obs, reward, terminated, truncated, info = env.step(action)
+                    obs, reward, terminated, truncated, info = self.Env.step(action)
                     episode_reward += reward
                     episode_timestep += 1
+                    action_count[action] += 1
+                    
+                    for key in info.keys():
+                        if key not in reward_type_values:
+                            reward_type_values[key] = 0
+                        reward_type_values[key] += round(info[key],1)
 
                     # Log details of each timestep including reward
                     timestep_details = {
@@ -125,6 +107,7 @@ class PolicyAgents:
                         episode_reward = round(episode_reward)
                         rewards.append(episode_reward)
                         timesteps.append(episode_timestep)
+                        early_termination_count += int(truncated)
 
                         # Add total reward and timestep count to episode details
                         episode_details["Total Reward"] = episode_reward
@@ -132,7 +115,10 @@ class PolicyAgents:
 
                         # Write the full episode details as a JSON object to the file
                         f.write(json.dumps(episode_details) + "\n")
-                        break  
+                        break
+                
+                all_episode_reward_types.append(reward_type_values)  
+                action_distribution.append(action_count)
 
         # Calculate average reward
         reward_ave = round(sum(rewards) / num_episodes)
@@ -142,9 +128,16 @@ class PolicyAgents:
         timestep_ave = round(sum(timesteps) / num_episodes)
         print(f"Average timesteps of {num_episodes} episodes is {timestep_ave}.")
         
-        return rewards, timesteps
+        df = pd.DataFrame(all_episode_reward_types)
+        all_episode_reward_types = df.mean().to_dict()
+        
+        action_distribution = [sum(x) / len(x) for x in zip(*action_distribution)]    
+        
+        print(f"Early terminations: {early_termination_count}")
+        
+        return rewards, timesteps, all_episode_reward_types, action_distribution
     
-    def plot_test_results(rewards, timesteps, interval=10):
+    def plot_test_results(self, rewards, timesteps, interval=10):
         """
         Plots individual episode rewards and timesteps as dots with transparency, 
         along with average rewards and timesteps per specified interval (e.g., 10 episodes) as lines.
@@ -188,88 +181,16 @@ class PolicyAgents:
         # Adjust layout and show the plot
         plt.tight_layout()
         plt.show()
-    
-    def hyperparameter_tuning(self, hyperparameter_space, lambd=0, episodes=10000, on_policy=True, n_trials=50):
-        """
-        Perform hyperparameter tuning using Optuna.
-
-        Parameters:
-            hyperparameter_space (dict): Dictionary defining the ranges of hyperparameters to tune.
-            episodes (int): Number of training episodes for each trial.
-            n_trials (int): Number of trials to run for the Optuna study.
-
-        Returns:
-            tuple: The best agent instance and the best hyperparameters found.
-        """
-
-        def objective(trial):
-            # Define the hyperparameter space using Optuna's suggest functions
-            self.alpha = trial.suggest_float('alpha', *hyperparameter_space['alpha'], log=True)
-            self.gamma = trial.suggest_float('gamma', *hyperparameter_space['gamma'])
-            self.epsilon = 1.0
-            # self.epsilon_decay = trial.suggest_float('epsilon_decay', *hyperparameter_space['epsilon_decay'])
-            self.epsilon_min = trial.suggest_float('epsilon_min', *hyperparameter_space['epsilon_min'])
-            # self.lambd = trial.suggest_float('lambd', *hyperparameter_space['lambd'])
-
-            # Train the agent with the current hyperparameters
-            rewards, _ = self.train(num_episodes=episodes, on_policy = on_policy)
-
-            # Calculate the average reward over the last 1000 episodes
-            average_reward = np.mean(rewards[-500:])
-            print(f"Trial {trial.number}: Average Reward = {average_reward:.2f}")
-
-            return average_reward
-
-        # Create a study and optimize the objective function
-        study = optuna.create_study(direction="maximize")
-        study.optimize(objective, n_trials=n_trials)
-
-        # Retrieve the best hyperparameters and best average reward
-        best_params = study.best_params
-        best_average_reward = study.best_value  # negate since we minimized -reward
-        # Instantiate the best agent with the optimized hyperparameters
-        best_agent = PolicyAgents(
-            self.Env,
-            oiv = 0.1, 
-            alpha=best_params['alpha'], 
-            gamma=best_params['gamma'], 
-            epsilon=1.0, 
-            # epsilon_decay=best_params['epsilon_decay'], 
-            epsilon_decay = 0.9999,
-            epsilon_min=best_params['epsilon_min'], 
-            lambd=lambd #best_params['lambd']
-        )
-
-        print("\nBest Hyperparameters Found:")
-        print(best_params)
-        print(f"Best Average Reward: {best_average_reward:.2f}")
-
-        return best_agent, best_params
-    
-    def analyze_model_actions(self):
-        """
-        Analyze action distribution from either a saved model file or a TD agent
         
-        Args:
-        - model_path (str): Path to saved model JSON file (optional)
-        - td_agent (TemporalDifference): Trained TD agent (optional)
+    def analyze_model_actions(self, action_dist):
         """
-        # Get Q-values either from file or agent
-        q_values = dict(self.Q)
+        Analyze action distribution from a list of action counts.
+        """
 
         # Analyze action distribution
-        left = 0
-        stay = 0
-        right = 0
-        
-        for state, values in q_values.items():
-            action = np.argmax(values)
-            if action == 0:
-                left += 1
-            elif action == 1:
-                stay += 1
-            else:
-                right += 1
+        left = int(action_dist[0])
+        stay = int(action_dist[1])
+        right = int(action_dist[2])
         
         # Calculate percentages
         total = left + stay + right
@@ -286,7 +207,7 @@ class PolicyAgents:
         self.plot_action_distribution(left, stay, right)
         
         return left, stay, right, left_pct, stay_pct, right_pct
-
+    
     def plot_action_distribution(self, left, stay, right):
         """
         Plot the distribution of actions as a bar chart
