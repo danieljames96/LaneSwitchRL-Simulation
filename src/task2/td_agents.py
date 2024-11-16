@@ -154,14 +154,13 @@ class TemporalDifference:
         # Return transformed state with current lane, discrete clearance rates and discrete risk factor
         return (current_lane_rate, left_lane_rate, right_lane_rate, risk_factor) # distance_percentage, current_lane
     
-    def train(self, num_episodes = 1000 , on_policy = True, save_model = False):
+    def train(self, num_episodes = 1000 , on_policy = True):
         """
         Trains the agent using Temporal Difference learning.
 
         Parameters:
         - num_episodes (int): Number of episodes to train.
         - on_policy (bool): Whether to use on-policy (SARSA) or off-policy (Q-learning).
-        - save_model (bool): Whether to save the model if performance improves.
 
         Returns:
         - total_reward_list (list): Rewards per episode.
@@ -246,16 +245,6 @@ class TemporalDifference:
             
             if not truncated:
                 self.total_steps_list.append(steps)
-            
-            if save_model == True:
-                # Calculate average reward over last 100 episodes (or all if less than 100)
-                window_size = min(100, len(self.total_reward_list))
-                avg_reward = sum(self.total_reward_list[-window_size:]) / window_size
-                
-                # Save if best performance
-                if avg_reward > self.best_reward:
-                    self.best_reward = avg_reward
-                    self.best_Q = dict(self.Q)  # Create a deep copy of current Q-values
                 
             if self.lambd == 1:
                 G = 0
@@ -553,3 +542,30 @@ class TemporalDifference:
         
         plt.tight_layout()
         plt.show()
+    
+    def save_q_table(self, file_path):
+        """
+        Save the Q-table to a JSON file.
+
+        Parameters:
+        - file_path (str): The path to save the Q-table JSON file.
+        """
+        # Convert defaultdict to a regular dictionary and stringify state keys
+        q_table_dict = {str(state): list(q_values) for state, q_values in self.Q.items()}
+        with open(file_path, 'w') as json_file:
+            json.dump(q_table_dict, json_file, indent=4)
+        print(f"Q-table saved to {file_path}")
+
+    def load_q_table(self, file_path):
+        """
+        Load the Q-table from a JSON file.
+
+        Parameters:
+        - file_path (str): The path to the Q-table JSON file.
+        """
+        with open(file_path, 'r') as json_file:
+            q_table_dict = json.load(json_file)
+        # Convert JSON keys back to tuples and values to numpy arrays
+        self.Q = defaultdict(lambda: np.zeros(self.action_space) + self.oiv,
+                             {eval(state): np.array(q_values) for state, q_values in q_table_dict.items()})
+        print(f"Q-table loaded from {file_path}")

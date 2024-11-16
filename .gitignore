@@ -3,8 +3,8 @@
 *.gif
 *.png
 
-notebooks/gifs
-notebooks/logs
+# notebooks/gifs
+# notebooks/logs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
